@@ -43,6 +43,8 @@ impl JsonPlaylist {
         media.title = None;
         media.duration = DUMMY_LEN;
         media.out = DUMMY_LEN;
+        media.description = None;
+        media.enable_description = None;
         Self {
             channel: "Channel 1".into(),
             date,

@@ -136,6 +136,10 @@ const menuItems = ref([
     { label: 'media', name: t('button.media'), link: localePath({ name: 'media' }) },
     { label: 'message', name: t('button.message'), link: localePath({ name: 'message' }) },
     { label: 'logging', name: t('button.logging'), link: localePath({ name: 'logging' }) },
+    { label: 'files', name: t('button.files'), link: localePath({ name: 'files' }) },
+    { label: 'download', name: t('button.download'), link: localePath({ name: 'download' }) },
+    { label: 'restreamer', name: t('button.restreamer'), link: localePath({ name: 'restreamer' }) },
+    { label: 'livebot', name: t('button.livebot'), link: localePath({ name: 'livebot' }) },
     { label: 'configure', name: t('button.configure'), link: localePath({ name: 'configure' }) },
 ])
 

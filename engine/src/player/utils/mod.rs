@@ -151,6 +151,20 @@ pub fn get_media_map(media: Media) -> Value {
             .insert("title".to_string(), Value::String(title));
     }
 
+    if let Some(description) = media.description {
+        obj.as_object_mut()
+            .unwrap()
+            .insert("description".to_string(), Value::String(description));
+    }
+
+    // Adiciona `enable_description` se não for None
+    if let Some(enable_description) = media.enable_description {
+        obj.as_object_mut().unwrap().insert(
+            "enable_description".to_string(),
+            Value::Bool(enable_description),
+        );
+    }
+
     obj
 }
 
@@ -183,6 +197,7 @@ pub fn get_data_map(manager: &ChannelManager) -> Map<String, Value> {
         "elapsed".to_string(),
         json!((played_time * 1000.0).round() / 1000.0),
     );
+
     data_map.insert("media".to_string(), get_media_map(media));
 
     data_map
@@ -212,6 +227,10 @@ pub struct Media {
         skip_serializing_if = "is_empty_string"
     )]
     pub category: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enable_description: Option<bool>,
     #[serde(deserialize_with = "null_string")]
     pub source: String,
 
@@ -277,6 +296,8 @@ impl Media {
             duration,
             duration_audio: 0.0,
             category: String::new(),
+            description: None,
+            enable_description: None,
             source: src.to_string(),
             audio: String::new(),
             cmd: Some(vec_strings!["-i", src]),
@@ -358,6 +379,8 @@ impl PartialEq for Media {
             && self.duration == other.duration
             && self.source == other.source
             && self.category == other.category
+            && self.description == other.description
+            && self.enable_description == other.enable_description
             && self.audio == other.audio
             && self.custom_filter == other.custom_filter
     }

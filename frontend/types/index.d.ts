@@ -85,6 +85,8 @@ declare global {
         out: number
         audio?: string
         category?: string
+        description?: string | null
+        enable_description?: boolean | null
         custom_filter?: string
         overtime?: boolean
     }
@@ -152,5 +154,7 @@ declare global {
         elapsed: number
         shift: number
         title?: string
+        description?: string
+        enable_description?: boolean
     }
 }

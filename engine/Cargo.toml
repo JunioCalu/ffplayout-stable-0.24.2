@@ -9,7 +9,7 @@ repository.workspace = true
 edition.workspace = true
 
 [features]
-default = ["embed_frontend"]
+default = []
 embed_frontend = []
 
 [dependencies]
@@ -67,6 +67,9 @@ zeromq = { version = "0.4", default-features = false, features = [
     "tokio-runtime",
     "tcp-transport",
 ] }
+dirs = "5.0.1"
+url = "2.5.4"
+thiserror = "2.0.6"
 
 [build-dependencies]
 static-files = "0.2"

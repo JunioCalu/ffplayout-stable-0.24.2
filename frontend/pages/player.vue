@@ -272,6 +272,8 @@ const newSource = ref({
     out: 0,
     duration: 0,
     category: '',
+    description: null,
+    enable_description: null,
     custom_filter: '',
     source: '',
     audio: '',
@@ -376,12 +378,47 @@ function setPreviewData(path: string) {
 
 function processSource(process: boolean) {
     showSourceModal.value = false
+    // Define as regex fora da função, tornando mais fácil de ler e manter
+    const validPatternRegex = new RegExp(
+    '^(?:(https?|http-flv|ftp|ftps|sftp|file|ssh|tcp|udp|rtp|rtsp|rtsps|' +
+    'rtmp|rtmpe|rtmps|rtmpt|rtmpte|mms|mmsh|mmst|mmsp|hls|m3u8|fmp4|dash|' +
+    'srt|flv|data|gopher|smb|nfs|pipe|concat|icecast|unix|tls|ffrtmphttp):\\/\\/)?' +
+    '(www\\.)?((m|music|studio|kids)\\.youtube\\.com|youtube\\.com|youtu\\.be|' +
+    '(m|business)\\.facebook\\.com|facebook\\.com|fb\\.com|fb\\.watch|(vm\\.)?tiktok\\.com|' +
+    '(l|graph)\\.instagram\\.com|instagram\\.com|ig\\.me|vimeo\\.com|(mobile\\.)?twitter\\.com|' +
+    't\\.co|x\\.com|(fr|uk)\\.linkedin\\.com|linkedin\\.com|linkedin\\.cn|snapchat\\.com|' +
+    '([a-z]{2}\\.)?pinterest\\.com|(clips\\.)?(m\\.)?twitch\\.tv|dailymotion\\.com|dai\\.ly|' +
+    'reddit\\.com|old\\.reddit\\.com|np\\.reddit\\.com|amp\\.reddit\\.com|vk\\.com|m\\.vk\\.com|' +
+    'odysee\\.com|lbry\\.tv|lbry\\.com|rumble\\.com|wistia\\.com|fast\\.wistia\\.net|' +
+    'flickr\\.com|flic\\.kr|douyin\\.com|v\\.douyin\\.com|[A-Za-z0-9-]+\\.[A-Za-z]{2,})(.*)?$'
+    );
+
+    const invalidPatternRegex = /.*:4444\/.*/;
+
+    function modifySourceValue() {
+        // Sanitiza a URL usando encodeURIComponent
+        const sanitizedSource = encodeURIComponent(newSource.value.source);
+
+        // Constrói o comando usando o valor sanitizado
+        const command = `streamlink --hls-live-edge 6 --ringbuffer-size 64M -4 --stream-sorting-excludes >720p --default-stream best --url ${sanitizedSource}`;
+
+        // Verifica se a fonte é válida pelo padrão estabelecido e não bate no padrão inválido
+        if (validPatternRegex.test(newSource.value.source) && !invalidPatternRegex.test(newSource.value.source)) {
+            // Ajusta a URL final usando o comando
+            newSource.value.source = `http://127.0.0.1:4444/cmd/${command}/`;
+        } else {
+            indexStore.msgAlert('error', `URL fornecida não corresponde ao padrão esperado ou é inválida.`, 4);
+            console.warn('URL fornecida não corresponde ao padrão esperado ou é inválida.');
+        }
+    }
 
     if (process) {
         if (editId.value === -1) {
             playlistStore.playlist.push(newSource.value)
+            modifySourceValue();
         } else {
             playlistStore.playlist[editId.value] = newSource.value
+            modifySourceValue();
         }
 
         processPlaylist(listDate.value, playlistStore.playlist, false)
@@ -396,6 +433,8 @@ function processSource(process: boolean) {
         out: 0,
         duration: 0,
         category: '',
+        description: '',
+        enable_description: false,
         custom_filter: '',
         source: '',
         audio: '',
@@ -414,6 +453,8 @@ function editPlaylistItem(i: number) {
         out: playlistStore.playlist[i].out,
         duration: playlistStore.playlist[i].duration,
         category: playlistStore.playlist[i].category,
+        description: playlistStore.playlist[i].description,
+        enable_description: playlistStore.playlist[i].enable_description,
         custom_filter: playlistStore.playlist[i].custom_filter,
         source: playlistStore.playlist[i].source,
         audio: playlistStore.playlist[i].audio,

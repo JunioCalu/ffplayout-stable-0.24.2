@@ -22,6 +22,18 @@
                 <NuxtLink :to="localePath({ name: 'logging' })" class="btn join-item btn-primary px-2">
                     {{ t('button.logging') }}
                 </NuxtLink>
+                <NuxtLink :to="localePath({ name: 'files' })" class="btn join-item btn-primary px-2">
+                    {{ t('button.files') }}
+                </NuxtLink>
+                <NuxtLink :to="localePath({ name: 'download' })" class="btn join-item btn-primary px-2">
+                    {{ t('button.download') }}
+                </NuxtLink>
+                <NuxtLink :to="localePath({ name: 'restreamer' })" class="btn join-item btn-primary px-2">
+                    {{ t('button.restreamer') }}
+                </NuxtLink>
+                <NuxtLink :to="localePath({ name: 'livebot' })" class="btn join-item btn-primary px-2">
+                    {{ t('button.livebot') }}
+                </NuxtLink>
                 <NuxtLink :to="localePath({ name: 'configure' })" class="btn join-item btn-primary px-2">
                     {{ t('button.configure') }}
                 </NuxtLink>

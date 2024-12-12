@@ -227,6 +227,14 @@ export const playlistOperations = () => {
                     delete item.title
                 }
 
+                if (!item.description) {
+                    delete item.description
+                }
+
+                if (!item.enable_description) {
+                    delete item.enable_description
+                }
+
                 if (
                     begin + (item.out - item.in) >
                     configStore.playout.playlist.startInSec + configStore.playout.playlist.lengthInSec

@@ -172,7 +172,9 @@ async fn main() -> std::io::Result<()> {
                         .service(import_playlist)
                         .service(get_program)
                         .service(get_system_stat)
-                        .service(generate_uuid),
+                        .service(generate_uuid)
+                        .service(livestream_routes())
+                        .service(ytbot_routes()),
                 )
                 .service(
                     web::scope("/data")

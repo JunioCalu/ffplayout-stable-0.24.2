@@ -81,57 +81,53 @@ export default defineNuxtConfig({
     i18n: {
         locales: [
             {
-                code: 'de',
-                name: 'Deutsch',
-                file: 'de-DE.js',
+                code: 'pt-br',
+                name: 'Português (BR)',
+                file: 'pt-BR.js',
             },
             {
                 code: 'en',
                 name: 'English',
                 file: 'en-US.js',
             },
-            {
-                code: 'pt-br',
-                name: 'Português (BR)',
-                file: 'pt-BR.js',
-            },
-            {
-                code: 'ru',
-                name: 'Русский язык (RU)',
-                file: 'ru-RU.js',
-            },
         ],
         customRoutes: 'config',
         pages: {
             player: {
-                de: '/wiedergabe',
-                en: '/player',
                 'pt-br': '/player',
-                ru: '/player',
+                en: '/player',
             },
             media: {
-                de: '/medien',
-                en: '/media',
                 'pt-br': '/armazenamento',
-                ru: '/media',
+                en: '/media',
             },
             message: {
-                de: '/nachrichten',
-                en: '/message',
                 'pt-br': '/legenda',
-                ru: '/message',
+                en: '/message',
             },
             logging: {
-                de: '/protokollierung',
-                en: '/logging',
                 'pt-br': '/registro',
-                ru: '/logging',
+                en: '/logging',
+            },
+            files: {
+                'pt-br': '/files',
+                en: '/files',
+              },
+            download: {
+                'pt-br': '/download',
+                en: '/download',
+            },
+            restreamer: {
+                'pt-br': '/restreamer',
+                en: '/restreamer',
+            },
+            livebot: {
+                'pt-br': '/livebot',
+                en: '/livebot',
             },
             configure: {
-                de: '/einstellungen',
-                en: '/configure',
                 'pt-br': '/configurar',
-                ru: '/configure',
+                en: '/configure',
             },
         },
         detectBrowserLanguage: {
