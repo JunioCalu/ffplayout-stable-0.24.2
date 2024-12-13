@@ -1606,14 +1606,12 @@ pub mod ytbot {
      // Agora um mapa de canal_id -> Child
      static YTBOT_PROCESSES: Lazy<AsyncMutex<HashMap<i32, Child>>> = Lazy::new(|| AsyncMutex::new(HashMap::new()));
 
-     // Definição de erros específicos
      #[derive(Error, Debug)]
      enum YtbotError {
          #[error("Erro ao verificar o status do ytbot: {0}")]
          StatusError(String),
      }
  
-     /// Verifica o caminho do executável do ytbot a partir de variáveis de ambiente ou caminhos padrão.
      async fn get_ytbot_path() -> Option<String> {
          if let Ok(path) = env::var("YTBOT_PATH") {
              if metadata(&path).await.is_ok() {
@@ -1631,32 +1629,23 @@ pub mod ytbot {
          None
      }
  
-     /// Verifica se o processo do ytbot está ativo para um canal específico.
      async fn is_ytbot_active(channel_id: i32) -> Result<bool, YtbotError> {
          let mut processes = YTBOT_PROCESSES.lock().await;
  
          if let Some(child) = processes.get_mut(&channel_id) {
              match child.try_wait() {
                  Ok(Some(_status)) => {
-                     // O processo terminou, remove-o do mapa
                      processes.remove(&channel_id);
                      Ok(false)
                  }
-                 Ok(None) => {
-                     // O processo ainda está ativo
-                     Ok(true)
-                 }
-                 Err(e) => {
-                     // Propaga o erro
-                     Err(YtbotError::StatusError(e.to_string()))
-                 }
+                 Ok(None) => Ok(true),
+                 Err(e) => Err(YtbotError::StatusError(e.to_string())),
              }
          } else {
-             Ok(false) // Nenhum processo registrado para este canal
+             Ok(false)
          }
      }
  
-     /// Rota para obter o status do ytbot para um canal específico.
      #[get("/ytbot/status/{id}")]
      #[protect(
          any("Role::GlobalAdmin", "Role::ChannelAdmin", "Role::User"),
@@ -1682,13 +1671,11 @@ pub mod ytbot {
          }
      }
  
-     /// Parâmetros para controle do serviço.
      #[derive(Debug, Deserialize)]
      pub struct ServiceControlParams {
          pub action: String,
      }
  
-     /// Controla o processo do ytbot (inicia ou para) para um canal específico.
      #[post("/ytbot/control/{id}")]
      #[protect(
          any("Role::GlobalAdmin", "Role::ChannelAdmin", "Role::User"),
@@ -1697,14 +1684,14 @@ pub mod ytbot {
      pub async fn ytbot_control(
          id: web::Path<i32>,
          req: web::Json<ServiceControlParams>,
+         controllers: web::Data<Mutex<ChannelController>>,
          _role: AuthDetails<Role>,
          _user: web::ReqData<UserMeta>,
-     ) -> impl Responder {
-         // Validação de entrada
+     ) -> Result<HttpResponse, actix_web::Error> {
          let action = req.action.trim().to_lowercase();
          if !["start", "stop"].contains(&action.as_str()) {
              warn!("Ação inválida recebida: {}", req.action);
-             return HttpResponse::BadRequest().json("Ação inválida. Use 'start' ou 'stop'.");
+             return Err(actix_web::error::ErrorBadRequest("Ação inválida. Use 'start' ou 'stop'."));
          }
  
          let channel_id = *id;
@@ -1714,111 +1701,94 @@ pub mod ytbot {
              "start" => {
                  if processes.contains_key(&channel_id) {
                      info!("O ytbot já está em execução para o canal {}", channel_id);
-                     return HttpResponse::BadRequest().json("O ytbot já está em execução");
+                     return Err(actix_web::error::ErrorBadRequest("O ytbot já está em execução"));
                  }
+ 
+                 let controller = controllers.lock().map_err(|_| actix_web::error::ErrorInternalServerError("Erro interno ao obter o controller"))?;
+                 let manager = controller.get(channel_id).ok_or_else(|| actix_web::error::ErrorBadRequest(format!("Canal ({}) não existe!", channel_id)))?;
+                 let ch = manager.channel.lock().map_err(|_| actix_web::error::ErrorInternalServerError("Erro ao acessar o canal"))?;
+                 let channel_name = ch.name.clone();
+                 drop(ch); // libera o lock do canal
  
                  match get_ytbot_path().await {
                      Some(ytbot_path) => {
-                         match Command::new(&ytbot_path)
+                         let args = vec![channel_id.to_string(), channel_name];
+ 
+                         let mut child = Command::new(&ytbot_path)
+                             .args(&args)
                              .stdout(Stdio::piped())
                              .stderr(Stdio::piped())
                              .spawn()
-                         {
-                             Ok(mut child) => {
-                                 // Captura o stdout e stderr do ytbot
-                                 let stdout = match child.stdout.take() {
-                                     Some(stdout) => stdout,
-                                     None => {
-                                         error!("Falha ao obter o stdout do ytbot");
-                                         let _ = child.kill().await;
-                                         return HttpResponse::InternalServerError()
-                                             .json("Falha ao iniciar o ytbot");
-                                     }
-                                 };
- 
-                                 let stderr = match child.stderr.take() {
-                                     Some(stderr) => stderr,
-                                     None => {
-                                         error!("Falha ao obter o stderr do ytbot");
-                                         let _ = child.kill().await;
-                                         return HttpResponse::InternalServerError()
-                                             .json("Falha ao iniciar o ytbot");
-                                     }
-                                 };
- 
-                                 // Cria tarefas para ler e exibir o stdout e stderr
-                                 tokio::spawn(async move {
-                                     let reader = BufReader::new(stdout);
-                                     let mut lines = reader.lines();
- 
-                                     while let Ok(Some(line)) = lines.next_line().await {
-                                         debug!("ytbot stdout: {}", line);
-                                     }
-                                 });
- 
-                                 tokio::spawn(async move {
-                                     let reader = BufReader::new(stderr);
-                                     let mut lines = reader.lines();
- 
-                                     while let Ok(Some(line)) = lines.next_line().await {
-                                         debug!("ytbot stderr: {}", line);
-                                     }
-                                 });
- 
-                                 // Armazena o processo no mapa para o canal
-                                 processes.insert(channel_id, child);
- 
-                                 info!("Processo do ytbot iniciado com sucesso ({}) para canal {}", ytbot_path, channel_id);
-                                 HttpResponse::Ok().json("ytbot iniciado com sucesso")
-                             }
-                             Err(e) => {
+                             .map_err(|e| {
                                  error!("Erro ao iniciar o ytbot: {}", e);
-                                 HttpResponse::InternalServerError().json("Erro ao iniciar o ytbot")
+                                 actix_web::error::ErrorInternalServerError("Erro ao iniciar o ytbot")
+                             })?;
+ 
+                         let stdout = child.stdout.take().ok_or_else(|| {
+                             error!("Falha ao obter o stdout do ytbot");
+                             actix_web::error::ErrorInternalServerError("Falha ao iniciar o ytbot")
+                         })?;
+ 
+                         let stderr = child.stderr.take().ok_or_else(|| {
+                             error!("Falha ao obter o stderr do ytbot");
+                             actix_web::error::ErrorInternalServerError("Falha ao iniciar o ytbot")
+                         })?;
+ 
+                         tokio::spawn(async move {
+                             let reader = BufReader::new(stdout);
+                             let mut lines = reader.lines();
+                             while let Ok(Some(line)) = lines.next_line().await {
+                                 debug!("ytbot stdout: {}", line);
                              }
-                         }
+                         });
+ 
+                         tokio::spawn(async move {
+                             let reader = BufReader::new(stderr);
+                             let mut lines = reader.lines();
+                             while let Ok(Some(line)) = lines.next_line().await {
+                                 debug!("ytbot stderr: {}", line);
+                             }
+                         });
+ 
+                         processes.insert(channel_id, child);
+                         info!("Processo do ytbot iniciado com sucesso ({}) para canal {}", ytbot_path, channel_id);
+                         Ok(HttpResponse::Ok().json("ytbot iniciado com sucesso"))
                      }
                      None => {
                          warn!("Nenhum executável do ytbot encontrado");
-                         HttpResponse::InternalServerError()
-                             .json("Executável do ytbot não encontrado")
+                         Err(actix_web::error::ErrorInternalServerError("Executável do ytbot não encontrado"))
                      }
                  }
              }
              "stop" => {
                  if let Some(mut child) = processes.remove(&channel_id) {
-                     match child.kill().await {
-                         Ok(()) => {
-                             // Implementação de timeout ao aguardar o término do processo
-                             match timeout(Duration::from_secs(5), child.wait()).await {
-                                 Ok(Ok(_)) => {
-                                     info!("Processo do ytbot interrompido com sucesso para canal {}", channel_id);
-                                     HttpResponse::Ok().json("ytbot interrompido com sucesso")
-                                 }
-                                 Ok(Err(e)) => {
-                                     error!("Erro ao aguardar o término do ytbot: {}", e);
-                                     HttpResponse::InternalServerError()
-                                         .json("Erro ao interromper o ytbot")
-                                 }
-                                 Err(_) => {
-                                     error!("Timeout ao interromper o ytbot para canal {}", channel_id);
-                                     HttpResponse::InternalServerError()
-                                         .json("Timeout ao interromper o ytbot")
-                                 }
-                             }
+                     child.kill().await.map_err(|e| {
+                         error!("Erro ao interromper o ytbot: {}", e);
+                         actix_web::error::ErrorInternalServerError("Erro ao interromper o ytbot")
+                     })?;
+ 
+                     match timeout(Duration::from_secs(5), child.wait()).await {
+                         Ok(Ok(_)) => {
+                             info!("Processo do ytbot interrompido com sucesso para canal {}", channel_id);
+                             Ok(HttpResponse::Ok().json("ytbot interrompido com sucesso"))
                          }
-                         Err(e) => {
-                             error!("Erro ao interromper o ytbot: {}", e);
-                             HttpResponse::InternalServerError().json("Erro ao interromper o ytbot")
+                         Ok(Err(e)) => {
+                             error!("Erro ao aguardar o término do ytbot: {}", e);
+                             Err(actix_web::error::ErrorInternalServerError("Erro ao interromper o ytbot"))
+                         }
+                         Err(_) => {
+                             error!("Timeout ao interromper o ytbot para canal {}", channel_id);
+                             Err(actix_web::error::ErrorInternalServerError("Timeout ao interromper o ytbot"))
                          }
                      }
                  } else {
                      info!("Nenhum processo do ytbot em execução para o canal {}", channel_id);
-                     HttpResponse::BadRequest().json("Nenhum processo do ytbot em execução")
+                     Err(actix_web::error::ErrorBadRequest("Nenhum processo do ytbot em execução"))
                  }
              }
              _ => {
                  warn!("Ação inválida recebida: {}", action);
-                 HttpResponse::BadRequest().json("Ação inválida")
+                 Err(actix_web::error::ErrorBadRequest("Ação inválida"))
              }
          }
      }
