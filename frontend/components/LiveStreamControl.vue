@@ -41,11 +41,28 @@ import { onBeforeUnmount, onMounted, ref } from 'vue';
 const authStore = useAuth();
 const indexStore = useIndex(); // Supondo que o indexStore seja importado dessa forma
 const colorMode = useColorMode();
+const configStore = useConfig()
 
 const liveUrl = ref('');
 const isStreaming = ref(false);
 const contentType = { 'content-type': 'application/json;charset=UTF-8' };
 const streamUpdateTimer = ref();
+
+const { i } = storeToRefs(useConfig())
+
+const channel = ref({} as Channel)
+
+onMounted(() => {
+  if (configStore.channels[i.value]) {
+    channel.value = { ...configStore.channels[i.value] }
+  }
+})
+
+watch([i], () => {
+  if (configStore.channels[i.value]) {
+    channel.value = { ...configStore.channels[i.value] }
+  }
+})
 
 onMounted(() => {
   streamStatus();
@@ -91,7 +108,11 @@ async function getStreamStatus() {
 }
 
 async function startStream() {
-  return fetch('/api/livestream/control', {
+  if (!channel.value.id) {
+    indexStore.msgAlert('error', 'Canal não encontrado', 3)
+    return
+  }
+  return fetch(`/api/livestream/control/${channel.value.id}`, {
     method: 'POST',
     headers: { ...contentType, ...authStore.authHeader },
     body: JSON.stringify({
@@ -115,7 +136,11 @@ async function startStream() {
 }
 
 async function stopStream() {
-  return fetch('/api/livestream/control', {
+  if (!channel.value.id) {
+    indexStore.msgAlert('error', 'Canal não encontrado', 3)
+    return
+  }
+  return fetch(`/api/livestream/control/${channel.value.id}`, {
     method: 'POST',
     headers: { ...contentType, ...authStore.authHeader },
     body: JSON.stringify({ action: 'stop' }),

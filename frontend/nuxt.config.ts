@@ -2,7 +2,7 @@
 export default defineNuxtConfig({
     devServer: {
         port: 3000, // default: 3000
-        host: '127.0.0.1', // default: localhost
+        host: '0.0.0.0', // default: localhost
     },
 
     nitro: {
@@ -128,6 +128,10 @@ export default defineNuxtConfig({
             configure: {
                 'pt-br': '/configurar',
                 en: '/configure',
+            },
+            teste_livestreamcontrol: {
+                'pt-br': '/teste_livestreamcontrol',
+                en: '/teste_livestreamcontrol',
             },
         },
         detectBrowserLanguage: {
