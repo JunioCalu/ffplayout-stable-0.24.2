@@ -12,6 +12,7 @@ use std::{
     env,
     path::{Path, PathBuf},
     sync::{atomic::Ordering, Arc, Mutex},
+    collections::HashMap,
 };
 
 use actix_files;
@@ -1824,83 +1825,80 @@ pub mod ytbot {
 pub mod livestream {
     use super::*;
 
-    // Estado global para os processos do livestream
-    static STREAM_PROCESS: Lazy<
-        AsyncMutex<Option<(Arc<AsyncMutex<Child>>, Arc<AsyncMutex<Child>>)>>,
-    > = Lazy::new(|| AsyncMutex::new(None));
-
-    // Definição de erros específicos
     #[derive(Error, Debug)]
     enum LivestreamError {
         #[error("Erro ao verificar o status do ffmpeg: {0}")]
         StatusError(String),
     }
-
-    /// Verifica se o executável do `ffmpeg` está disponível.
+    
+    // Aqui definimos um mapa global de canal_id -> (streamlink_process, ffmpeg_process)
+    static STREAM_PROCESSES: Lazy<AsyncMutex<HashMap<i32, (Arc<AsyncMutex<Child>>, Arc<AsyncMutex<Child>>)>>>
+        = Lazy::new(|| AsyncMutex::new(HashMap::new()));
+    
     async fn get_ffmpeg_path() -> Option<String> {
         if let Ok(path) = env::var("FFMPEG_PATH") {
-            if metadata(&path).await.is_ok() {
+            if tokio::fs::metadata(&path).await.is_ok() {
                 return Some(path);
             }
         }
-
+    
         let paths = ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg"];
-
+    
         for path in &paths {
-            if metadata(path).await.is_ok() {
+            if tokio::fs::metadata(path).await.is_ok() {
                 return Some(path.to_string());
             }
         }
         None
     }
-
-    /// Verifica se o processo `ffmpeg` do livestream está ativo.
-    async fn is_ffmpeg_livestream_active() -> Result<bool, LivestreamError> {
-        let mut process = STREAM_PROCESS.lock().await;
-
-        let result = {
-            if let Some((_streamlink_child, ffmpeg_child)) = process.as_mut() {
-                let mut ffmpeg_child = ffmpeg_child.lock().await;
-                let res = match ffmpeg_child.try_wait() {
-                    Ok(Some(_status)) => {
-                        // O processo terminou
-                        Ok(false)
-                    }
-                    Ok(None) => {
-                        // O processo ainda está ativo
-                        Ok(true)
-                    }
-                    Err(e) => {
-                        // Propaga o erro
-                        Err(LivestreamError::StatusError(e.to_string()))
-                    }
-                };
-                drop(ffmpeg_child); // Libera o empréstimo de ffmpeg_child
-                res
-            } else {
-                Ok(false) // Nenhum processo registrado
+    
+    /// Verifica se o processo `ffmpeg` do livestream está ativo para um determinado canal.
+    async fn is_ffmpeg_livestream_active(channel_id: i32) -> Result<bool, LivestreamError> {
+        let mut processes = STREAM_PROCESSES.lock().await;
+    
+        // Removemos do mapa primeiro
+        if let Some((streamlink_process, ffmpeg_process)) = processes.remove(&channel_id) {
+            let mut ffmpeg_child = ffmpeg_process.lock().await;
+    
+            match ffmpeg_child.try_wait() {
+                Ok(Some(_status)) => {
+                    // O processo terminou, não reinserimos no mapa
+                    Ok(false)
+                }
+                Ok(None) => {
+                    // O processo ainda está ativo
+                    // Precisamos reinserir o par no mapa
+                    drop(ffmpeg_child); // Solta o guard antes de reinserir
+    
+                    // Reinserir o mesmo tuple (streamlink_process, ffmpeg_process)
+                    processes.insert(channel_id, (streamlink_process, ffmpeg_process));
+    
+                    Ok(true)
+                }
+                Err(e) => Err(LivestreamError::StatusError(e.to_string())),
             }
-        };
-
-        if let Ok(false) = result {
-            *process = None; // Agora podemos modificar process
+        } else {
+            Ok(false) // Nenhum processo registrado para esse canal
         }
-
-        result
     }
-
-    #[get("/livestream/ffmpeg/status")]
+    
+      
+    #[get("/livestream/ffmpeg/status/{id}")]
     #[protect(
         any("Role::GlobalAdmin", "Role::ChannelAdmin", "Role::User"),
         ty = "Role"
     )]
-    pub async fn livestream_ffmpeg_status() -> impl Responder {
-        match is_ffmpeg_livestream_active().await {
+    pub async fn livestream_ffmpeg_status(
+        id: web::Path<i32>,
+        _role: AuthDetails<Role>,
+        _user: web::ReqData<UserMeta>
+    ) -> impl Responder {
+        match is_ffmpeg_livestream_active(*id).await {
             Ok(active) => {
                 if active {
-                    HttpResponse::Ok().json(json!({"status": "active"}))
+                    HttpResponse::Ok().json(serde_json::json!({"status": "active"}))
                 } else {
-                    HttpResponse::Ok().json(json!({"status": "inactive"}))
+                    HttpResponse::Ok().json(serde_json::json!({"status": "inactive"}))
                 }
             }
             Err(e) => {
@@ -1909,7 +1907,7 @@ pub mod livestream {
             }
         }
     }
-
+    
     async fn extract_rtmp_stream_details(
         id: i32,
         controllers: web::Data<Mutex<ChannelController>>
@@ -1929,7 +1927,6 @@ pub mod livestream {
             if let Some(port_str) = caps.get(1) {
                 let port_str = port_str.as_str();
                 if let Ok(port) = port_str.parse::<u16>() {
-                    // Removido o check `if port <= 65535` já que o tipo u16 garante isso
                     let stream_key = caps.get(2).map(|m| m.as_str()).unwrap_or("");
                     return Ok(format!(":{}{}", port, stream_key));
                 }
@@ -1938,13 +1935,13 @@ pub mod livestream {
     
         Err(ServiceError::BadRequest("Nenhuma porta válida encontrada".to_string()))
     }
-
+    
     #[derive(Debug, Deserialize)]
     pub struct StreamParams {
         pub action: String,
         pub url: Option<String>,
     }
-
+    
     #[post("/livestream/control/{id}")]
     #[protect(
         any("Role::GlobalAdmin", "Role::ChannelAdmin", "Role::User"),
@@ -1955,304 +1952,278 @@ pub mod livestream {
         req: web::Json<StreamParams>,
         controllers: web::Data<Mutex<ChannelController>>,
         _role: AuthDetails<Role>,
-        _user: web::ReqData<UserMeta>,) -> impl Responder {
-        // Validação de entrada
+        _user: web::ReqData<UserMeta>,
+    ) -> impl Responder {
         let action = req.action.trim().to_lowercase();
         if !["start", "stop"].contains(&action.as_str()) {
             warn!("Ação inválida recebida: {}", req.action);
             return HttpResponse::BadRequest().json("Ação inválida. Use 'start' ou 'stop'.");
         }
-
-        let mut process = STREAM_PROCESS.lock().await;
-
+    
+        let channel_id = *id;
+    
         match action.as_str() {
             "start" => {
-                if process.is_some() {
-                    info!("Stream já está em execução");
+                let mut processes = STREAM_PROCESSES.lock().await;
+                if processes.contains_key(&channel_id) {
+                    info!("Stream já está em execução para o canal {}", channel_id);
                     return HttpResponse::BadRequest().json("Stream já está em execução");
                 }
-
-                if let Some(url) = &req.url {
-                    if let Ok(parsed_url) = Url::parse(url) {
-                        // Verifica o caminho do executável do streamlink
-                        let streamlink_path = if let Ok(path) = env::var("STREAMLINK_PATH") {
-                            Path::new(&path).to_path_buf()
-                        } else {
-                            let home_dir = match home_dir() {
-                                Some(path) => path,
-                                None => {
-                                    error!("Não foi possível determinar o diretório HOME");
-                                    return HttpResponse::InternalServerError()
-                                        .json("Erro ao iniciar o streaming");
-                                }
-                            };
-                            home_dir.join("livebot/venv/bin/streamlink")
-                        };
-
-                        // Verifica se o executável do streamlink existe
-                        if !streamlink_path.exists() {
-                            error!(
-                                "O executável do streamlink não foi encontrado em {:?}",
-                                streamlink_path
-                            );
-                            return HttpResponse::InternalServerError()
-                                .json("Executável do streamlink não encontrado");
-                        }
-
-                        // Verifica o caminho do executável do ffmpeg
-                        let ffmpeg_path = match get_ffmpeg_path().await {
+    
+                let url = match &req.url {
+                    Some(u) => u,
+                    None => {
+                        info!("URL não fornecida");
+                        return HttpResponse::BadRequest().json("URL não fornecida");
+                    }
+                };
+    
+                if let Ok(parsed_url) = Url::parse(url) {
+                    // Verifica o caminho do executável do streamlink
+                    let streamlink_path = if let Ok(path) = env::var("STREAMLINK_PATH") {
+                        Path::new(&path).to_path_buf()
+                    } else {
+                        let home_dir = match home_dir() {
                             Some(path) => path,
                             None => {
-                                error!("Executável do ffmpeg não encontrado");
-                                return HttpResponse::InternalServerError()
-                                    .json("Executável do ffmpeg não encontrado");
-                            }
-                        };
-
-                        // Define os argumentos do streamlink
-                        let streamlink_args = vec![
-                            "--hls-live-edge",
-                            "6",
-                            "--ringbuffer-size",
-                            "128M",
-                            "-4",
-                            "--stream-sorting-excludes",
-                            ">720p",
-                            "--default-stream",
-                            "best",
-                            "--url",
-                            parsed_url.as_str(),
-                            "-o",
-                            "-",
-                        ];
-
-                        // Inicia o processo do streamlink com segurança
-                        let streamlink_process = match Command::new(&streamlink_path)
-                            .args(&streamlink_args)
-                            .stdout(Stdio::piped())
-                            .stderr(Stdio::piped())
-                            .stdin(Stdio::null())
-                            .spawn()
-                        {
-                            Ok(process) => process,
-                            Err(e) => {
-                                error!("Erro ao iniciar o streamlink: {}", e);
+                                error!("Não foi possível determinar o diretório HOME");
                                 return HttpResponse::InternalServerError()
                                     .json("Erro ao iniciar o streaming");
                             }
                         };
-
-                        // Envolver o processo em Arc<AsyncMutex<Child>>
-                        let streamlink_process = Arc::new(AsyncMutex::new(streamlink_process));
-
-                        // Obtém o stdout do streamlink (para enviar ao ffmpeg)
-                        let mut streamlink_stdout = {
+                        home_dir.join("livebot/venv/bin/streamlink")
+                    };
+    
+                    if !streamlink_path.exists() {
+                        error!("O executável do streamlink não foi encontrado em {:?}", streamlink_path);
+                        return HttpResponse::InternalServerError()
+                            .json("Executável do streamlink não encontrado");
+                    }
+    
+                    let ffmpeg_path = match get_ffmpeg_path().await {
+                        Some(path) => path,
+                        None => {
+                            error!("Executável do ffmpeg não encontrado");
+                            return HttpResponse::InternalServerError()
+                                .json("Executável do ffmpeg não encontrado");
+                        }
+                    };
+    
+                    // Define os argumentos do streamlink
+                    let streamlink_args = vec![
+                        "--hls-live-edge",
+                        "6",
+                        "--ringbuffer-size",
+                        "128M",
+                        "-4",
+                        "--stream-sorting-excludes",
+                        ">720p",
+                        "--default-stream",
+                        "best",
+                        "--url",
+                        parsed_url.as_str(),
+                        "-o",
+                        "-",
+                    ];
+    
+                    // Inicia o processo do streamlink
+                    let streamlink_process = match Command::new(&streamlink_path)
+                        .args(&streamlink_args)
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .stdin(Stdio::null())
+                        .spawn()
+                    {
+                        Ok(process) => process,
+                        Err(e) => {
+                            error!("Erro ao iniciar o streamlink: {}", e);
+                            return HttpResponse::InternalServerError()
+                                .json("Erro ao iniciar o streaming");
+                        }
+                    };
+    
+                    let streamlink_process = Arc::new(AsyncMutex::new(streamlink_process));
+    
+                    let mut streamlink_stdout = {
+                        let mut process_lock = streamlink_process.lock().await;
+                        match process_lock.stdout.take() {
+                            Some(stdout) => stdout,
+                            None => {
+                                error!("Falha ao obter o stdout do streamlink");
+                                let _ = process_lock.kill().await;
+                                return HttpResponse::InternalServerError()
+                                    .json("Erro ao iniciar o streaming");
+                            }
+                        }
+                    };
+    
+                    let streamlink_stderr = {
+                        let mut process_lock = streamlink_process.lock().await;
+                        match process_lock.stderr.take() {
+                            Some(stderr) => stderr,
+                            None => {
+                                error!("Falha ao obter o stderr do streamlink");
+                                let _ = process_lock.kill().await;
+                                return HttpResponse::InternalServerError()
+                                    .json("Erro ao iniciar o streaming");
+                            }
+                        }
+                    };
+    
+                    let rtmp_details = match extract_rtmp_stream_details(channel_id, controllers.clone()).await {
+                        Ok(details) => details,
+                        Err(e) => {
+                            error!("Erro ao extrair detalhes RTMP: {}", e);
                             let mut process_lock = streamlink_process.lock().await;
-                            match process_lock.stdout.take() {
-                                Some(stdout) => stdout,
-                                None => {
-                                    error!("Falha ao obter o stdout do streamlink");
-                                    // Rollback: encerra o processo iniciado
-                                    let _ = process_lock.kill().await;
-                                    return HttpResponse::InternalServerError()
-                                        .json("Erro ao iniciar o streaming");
-                                }
-                            }
-                        };
-
-                        // Obtém o stderr do streamlink
-                        let streamlink_stderr = {
+                            let _ = process_lock.kill().await;
+                            return HttpResponse::InternalServerError().json("Erro ao extrair detalhes RTMP");
+                        }
+                    };
+    
+                    let ffmpeg_url = format!("rtmp://127.0.0.1{}", rtmp_details);
+    
+                    let ffmpeg_args = [
+                        "-re",
+                        "-hide_banner",
+                        "-nostats",
+                        "-v",
+                        "level+error",
+                        "-i",
+                        "pipe:0",
+                        "-vcodec",
+                        "copy",
+                        "-acodec",
+                        "copy",
+                        "-f",
+                        "flv",
+                        &ffmpeg_url,
+                    ];
+    
+                    let ffmpeg_process = match Command::new(&ffmpeg_path)
+                        .args(&ffmpeg_args)
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .spawn()
+                    {
+                        Ok(process) => process,
+                        Err(e) => {
+                            error!("Erro ao iniciar o ffmpeg: {}", e);
                             let mut process_lock = streamlink_process.lock().await;
-                            match process_lock.stderr.take() {
-                                Some(stderr) => stderr,
-                                None => {
-                                    error!("Falha ao obter o stderr do streamlink");
-                                    // Rollback: encerra o processo iniciado
-                                    let _ = process_lock.kill().await;
-                                    return HttpResponse::InternalServerError()
-                                        .json("Erro ao iniciar o streaming");
-                                }
-                            }
-                        };
-
-                        // Atualiza os argumentos do ffmpeg com base nos parâmetros fornecidos
-                        let rtmp_details = match extract_rtmp_stream_details(*id, controllers.clone()).await {
-                            Ok(details) => details,
-                            Err(e) => {
-                                error!("Erro ao extrair detalhes RTMP: {}", e);
-                                return HttpResponse::InternalServerError().json("Erro ao extrair detalhes RTMP");
-                            }
-                        };
-                
-                        // Constrói a URL do ffmpeg usando a porta e o stream_key extraídos
-                        let ffmpeg_url = format!("rtmp://127.0.0.1{}", rtmp_details);
-                
-                        // Agora defina ffmpeg_args com a URL dinâmica
-                        let ffmpeg_args = [
-                            "-re",
-                            "-hide_banner",
-                            "-nostats",
-                            "-v",
-                            "level+error",
-                            "-i",
-                            "pipe:0",
-                            "-vcodec",
-                            "copy",
-                            "-acodec",
-                            "copy",
-                            "-f",
-                            "flv",
-                            &ffmpeg_url,
-                        ];                
-
-                        // Inicia o processo do ffmpeg com segurança
-                        let ffmpeg_process = match Command::new(&ffmpeg_path)
-                            .args(&ffmpeg_args)
-                            .stdin(Stdio::piped())
-                            .stdout(Stdio::piped())
-                            .stderr(Stdio::piped())
-                            .spawn()
-                        {
-                            Ok(process) => process,
-                            Err(e) => {
-                                error!("Erro ao iniciar o ffmpeg: {}", e);
-                                // Rollback: encerra o processo do streamlink
+                            let _ = process_lock.kill().await;
+                            return HttpResponse::InternalServerError()
+                                .json("Erro ao iniciar o streaming");
+                        }
+                    };
+    
+                    let ffmpeg_process = Arc::new(AsyncMutex::new(ffmpeg_process));
+    
+                    let mut ffmpeg_stdin = {
+                        let mut process_lock = ffmpeg_process.lock().await;
+                        match process_lock.stdin.take() {
+                            Some(stdin) => stdin,
+                            None => {
+                                error!("Falha ao obter o stdin do ffmpeg");
                                 let mut streamlink_process_lock = streamlink_process.lock().await;
                                 let _ = streamlink_process_lock.kill().await;
+                                let _ = process_lock.kill().await;
                                 return HttpResponse::InternalServerError()
                                     .json("Erro ao iniciar o streaming");
                             }
-                        };
-
-                        // Envolver o processo em Arc<AsyncMutex<Child>>
-                        let ffmpeg_process = Arc::new(AsyncMutex::new(ffmpeg_process));
-
-                        // Obtém o stdin do ffmpeg
-                        let mut ffmpeg_stdin = {
-                            let mut process_lock = ffmpeg_process.lock().await;
-                            match process_lock.stdin.take() {
-                                Some(stdin) => stdin,
-                                None => {
-                                    error!("Falha ao obter o stdin do ffmpeg");
-                                    // Rollback: encerra processos iniciados
-                                    let mut streamlink_process_lock =
-                                        streamlink_process.lock().await;
-                                    let _ = streamlink_process_lock.kill().await;
-                                    let _ = process_lock.kill().await;
-                                    return HttpResponse::InternalServerError()
-                                        .json("Erro ao iniciar o streaming");
-                                }
+                        }
+                    };
+    
+                    let ffmpeg_stdout = {
+                        let mut process_lock = ffmpeg_process.lock().await;
+                        match process_lock.stdout.take() {
+                            Some(stdout) => stdout,
+                            None => {
+                                error!("Falha ao obter o stdout do ffmpeg");
+                                let mut streamlink_process_lock = streamlink_process.lock().await;
+                                let _ = streamlink_process_lock.kill().await;
+                                let _ = process_lock.kill().await;
+                                return HttpResponse::InternalServerError()
+                                    .json("Erro ao iniciar o streaming");
                             }
-                        };
-
-                        // Obtém o stdout e stderr do ffmpeg
-                        let ffmpeg_stdout = {
-                            let mut process_lock = ffmpeg_process.lock().await;
-                            match process_lock.stdout.take() {
-                                Some(stdout) => stdout,
-                                None => {
-                                    error!("Falha ao obter o stdout do ffmpeg");
-                                    // Rollback: encerra processos iniciados
-                                    let mut streamlink_process_lock =
-                                        streamlink_process.lock().await;
-                                    let _ = streamlink_process_lock.kill().await;
-                                    let _ = process_lock.kill().await;
-                                    return HttpResponse::InternalServerError()
-                                        .json("Erro ao iniciar o streaming");
-                                }
+                        }
+                    };
+    
+                    let ffmpeg_stderr = {
+                        let mut process_lock = ffmpeg_process.lock().await;
+                        match process_lock.stderr.take() {
+                            Some(stderr) => stderr,
+                            None => {
+                                error!("Falha ao obter o stderr do ffmpeg");
+                                let mut streamlink_process_lock = streamlink_process.lock().await;
+                                let _ = streamlink_process_lock.kill().await;
+                                let _ = process_lock.kill().await;
+                                return HttpResponse::InternalServerError()
+                                    .json("Erro ao iniciar o streaming");
                             }
-                        };
-
-                        let ffmpeg_stderr = {
-                            let mut process_lock = ffmpeg_process.lock().await;
-                            match process_lock.stderr.take() {
-                                Some(stderr) => stderr,
-                                None => {
-                                    error!("Falha ao obter o stderr do ffmpeg");
-                                    // Rollback: encerra processos iniciados
-                                    let mut streamlink_process_lock =
-                                        streamlink_process.lock().await;
-                                    let _ = streamlink_process_lock.kill().await;
-                                    let _ = process_lock.kill().await;
-                                    return HttpResponse::InternalServerError()
-                                        .json("Erro ao iniciar o streaming");
-                                }
-                            }
-                        };
-
-                        // Clonar os Arc para usar nas closures
-                        let streamlink_process_clone = Arc::clone(&streamlink_process);
-                        let ffmpeg_process_clone = Arc::clone(&ffmpeg_process);
-
-                        // Cria uma tarefa para copiar os dados do streamlink para o ffmpeg
-                        let copy_task = tokio::spawn(async move {
-                            if let Err(e) =
-                                tokio::io::copy(&mut streamlink_stdout, &mut ffmpeg_stdin).await
-                            {
-                                error!("Erro ao copiar dados do streamlink para o ffmpeg: {}", e);
-                                // Encerra processos em caso de erro
-                                let mut streamlink_process = streamlink_process_clone.lock().await;
-                                let mut ffmpeg_process = ffmpeg_process_clone.lock().await;
-                                let _ = streamlink_process.kill().await;
-                                let _ = ffmpeg_process.kill().await;
-                            }
-                        });
-
-                        // Monitorar a tarefa de cópia (opcional)
-                        tokio::spawn(async move {
-                            if let Err(e) = copy_task.await {
-                                error!("Erro na tarefa de cópia: {}", e);
-                            }
-                        });
-
-                        // Cria uma tarefa para ler o stderr do streamlink
-                        tokio::spawn(async move {
-                            let reader = BufReader::new(streamlink_stderr);
-                            let mut lines = reader.lines();
-
-                            while let Ok(Some(line)) = lines.next_line().await {
-                                debug!("streamlink: {}", line);
-                            }
-                        });
-
-                        // Cria tarefas para ler o stdout e stderr do ffmpeg
-                        tokio::spawn(async move {
-                            let reader = BufReader::new(ffmpeg_stdout);
-                            let mut lines = reader.lines();
-
-                            while let Ok(Some(line)) = lines.next_line().await {
-                                debug!("ffmpeg stdout: {}", line);
-                            }
-                        });
-
-                        tokio::spawn(async move {
-                            let reader = BufReader::new(ffmpeg_stderr);
-                            let mut lines = reader.lines();
-
-                            while let Ok(Some(line)) = lines.next_line().await {
-                                debug!("ffmpeg stderr: {}", line);
-                            }
-                        });
-
-                        // Armazena ambos os processos
-                        *process = Some((streamlink_process, ffmpeg_process));
-                        info!("Stream iniciado");
-                        HttpResponse::Ok().json("Stream iniciado")
-                    } else {
-                        info!("URL inválida");
-                        HttpResponse::BadRequest().json("URL inválida")
-                    }
+                        }
+                    };
+    
+                    let streamlink_process_clone = Arc::clone(&streamlink_process);
+                    let ffmpeg_process_clone = Arc::clone(&ffmpeg_process);
+    
+                    let copy_task = tokio::spawn(async move {
+                        if let Err(e) = tokio::io::copy(&mut streamlink_stdout, &mut ffmpeg_stdin).await {
+                            error!("Erro ao copiar dados do streamlink para o ffmpeg: {}", e);
+                            let mut streamlink_process = streamlink_process_clone.lock().await;
+                            let mut ffmpeg_process = ffmpeg_process_clone.lock().await;
+                            let _ = streamlink_process.kill().await;
+                            let _ = ffmpeg_process.kill().await;
+                        }
+                    });
+    
+                    tokio::spawn(async move {
+                        if let Err(e) = copy_task.await {
+                            error!("Erro na tarefa de cópia: {}", e);
+                        }
+                    });
+    
+                    tokio::spawn(async move {
+                        let reader = BufReader::new(streamlink_stderr);
+                        let mut lines = reader.lines();
+    
+                        while let Ok(Some(line)) = lines.next_line().await {
+                            debug!("streamlink: {}", line);
+                        }
+                    });
+    
+                    tokio::spawn(async move {
+                        let reader = BufReader::new(ffmpeg_stdout);
+                        let mut lines = reader.lines();
+    
+                        while let Ok(Some(line)) = lines.next_line().await {
+                            debug!("ffmpeg stdout: {}", line);
+                        }
+                    });
+    
+                    tokio::spawn(async move {
+                        let reader = BufReader::new(ffmpeg_stderr);
+                        let mut lines = reader.lines();
+    
+                        while let Ok(Some(line)) = lines.next_line().await {
+                            debug!("ffmpeg stderr: {}", line);
+                        }
+                    });
+    
+                    // Armazena ambos os processos no mapa
+                    processes.insert(channel_id, (streamlink_process, ffmpeg_process));
+                    drop(processes);
+    
+                    info!("Stream iniciado para canal {}", channel_id);
+                    HttpResponse::Ok().json("Stream iniciado")
                 } else {
-                    info!("URL não fornecida");
-                    HttpResponse::BadRequest().json("URL não fornecida")
+                    info!("URL inválida");
+                    HttpResponse::BadRequest().json("URL inválida")
                 }
             }
             "stop" => {
-                if let Some((streamlink_child, ffmpeg_child)) = process.take() {
-                    // Função auxiliar para encerrar e aguardar o término do processo com timeout
-                    async fn kill_and_wait_with_timeout(
-                        child: Arc<AsyncMutex<Child>>,
-                    ) -> Result<(), String> {
+                let mut processes = STREAM_PROCESSES.lock().await;
+                if let Some((streamlink_child, ffmpeg_child)) = processes.remove(&channel_id) {
+                    async fn kill_and_wait_with_timeout(child: Arc<AsyncMutex<Child>>) -> Result<(), String> {
                         let mut child = child.lock().await;
                         child.kill().await.map_err(|e| e.to_string())?;
                         match timeout(Duration::from_secs(5), child.wait()).await {
@@ -2261,30 +2232,29 @@ pub mod livestream {
                             Err(_) => Err("Timeout ao encerrar o processo".to_string()),
                         }
                     }
-
-                    // Tenta encerrar e aguardar os processos
+    
                     let streamlink_result = kill_and_wait_with_timeout(streamlink_child).await;
                     let ffmpeg_result = kill_and_wait_with_timeout(ffmpeg_child).await;
-
+    
                     match (streamlink_result, ffmpeg_result) {
                         (Ok(()), Ok(())) => {
-                            info!("Stream parado");
+                            info!("Stream parado para canal {}", channel_id);
                             HttpResponse::Ok().json("Stream parado")
                         }
                         (Err(e1), Err(e2)) => {
                             error!(
-                                "Erro ao parar os processos do streaming: streamlink: {}, ffmpeg: {}",
-                                e1, e2
+                                "Erro ao parar streaming do canal {}: streamlink: {}, ffmpeg: {}",
+                                channel_id, e1, e2
                             );
                             HttpResponse::InternalServerError().json("Erro ao parar o streaming")
                         }
                         (Err(e), _) | (_, Err(e)) => {
-                            error!("Erro ao parar um dos processos do streaming: {}", e);
+                            error!("Erro ao parar um dos processos do streaming do canal {}: {}", channel_id, e);
                             HttpResponse::InternalServerError().json("Erro ao parar o streaming")
                         }
                     }
                 } else {
-                    info!("Nenhum stream está em execução");
+                    info!("Nenhum stream está em execução para o canal {}", channel_id);
                     HttpResponse::BadRequest().json("Nenhum stream está em execução")
                 }
             }
@@ -2294,7 +2264,6 @@ pub mod livestream {
             }
         }
     }
-
     // Expondo as rotas para uso externo
     pub fn livestream_routes() -> Scope {
         web::scope("")
