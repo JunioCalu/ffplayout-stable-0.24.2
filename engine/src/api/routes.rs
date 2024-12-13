@@ -2149,6 +2149,7 @@ pub mod livestream {
                     let copy_task = tokio::spawn(async move {
                         if let Err(e) = tokio::io::copy(&mut streamlink_stdout, &mut ffmpeg_stdin).await {
                             error!("Erro ao copiar dados do streamlink para o ffmpeg: {}", e);
+                            HttpResponse::InternalServerError().json("Erro ao copiar dados do streamlink para o ffmpeg");
                             let mut streamlink_process = streamlink_process_clone.lock().await;
                             let mut ffmpeg_process = ffmpeg_process_clone.lock().await;
                             let _ = streamlink_process.kill().await;

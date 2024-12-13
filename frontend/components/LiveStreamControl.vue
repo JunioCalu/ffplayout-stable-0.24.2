@@ -38,7 +38,6 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { storeToRefs } from 'pinia';
 
 const authStore = useAuth();
 const indexStore = useIndex();
@@ -51,7 +50,7 @@ const channel = ref({} as Channel);
 const liveUrl = ref('');
 const isStreaming = ref(false);
 const contentType = { 'content-type': 'application/json;charset=UTF-8' };
-const streamUpdateTimer = ref(null);
+const streamUpdateTimer = ref();
 
 onMounted(() => {
   updateChannel();
@@ -73,12 +72,15 @@ function updateChannel() {
 }
 
 async function streamStatus() {
-  async function updateStreamStatus() {
-    await getStreamStatus();
-    streamUpdateTimer.value = setTimeout(updateStreamStatus, 1000); // Timer de 1 segundo
+  async function updateStreamStatus(resolve: any) {
+    await getStreamStatus()
+      .then(() => {
+        streamUpdateTimer.value = setTimeout(() => updateStreamStatus(resolve), 1000); // Timer de 1 segundo
+      });
   }
 
-  updateStreamStatus();
+  // Chamada inicial para obter o status e continuar as chamadas subsequentes
+  return new Promise((resolve) => updateStreamStatus(resolve));
 }
 
 async function getStreamStatus() {
@@ -90,11 +92,17 @@ async function getStreamStatus() {
   })
     .then(async (response) => {
       const data = await response.json();
-      isStreaming.value = response.ok && data.status === 'active';
+      if (response.ok) {
+        isStreaming.value = data.status === 'active';
+      } else {
+        // Tratamento de erro em caso de falha na resposta da API
+        indexStore.msgAlert('error', data.status || 'Erro ao obter status do stream', 4);
+      }
     })
     .catch((error) => {
       console.error('Error getting stream status:', error);
       isStreaming.value = false;
+      indexStore.msgAlert('error', 'Erro ao obter status do stream', 4);
     });
 }
 
@@ -113,17 +121,17 @@ async function startStream() {
     }),
   })
     .then(async (response) => {
+      const data = await response.json();
       if (response.ok) {
         isStreaming.value = true;
         indexStore.msgAlert('success', 'Stream iniciado com sucesso', 4);
       } else {
-        const data = await response.json();
-        indexStore.msgAlert('error', data.message || 'Erro ao iniciar o stream', 4);
+        indexStore.msgAlert('error', data || 'Erro ao iniciar o stream', 4);
       }
     })
     .catch((error) => {
       console.error('Error starting stream:', error);
-      indexStore.msgAlert('error', 'Erro ao iniciar o stream', 4);
+      indexStore.msgAlert('error', `Erro ao iniciar o stream: ${error}`, 4);
     });
 }
 
@@ -139,17 +147,17 @@ async function stopStream() {
     body: JSON.stringify({ action: 'stop' }),
   })
     .then(async (response) => {
+      const data = await response.json();
       if (response.ok) {
         isStreaming.value = false;
         indexStore.msgAlert('success', 'Stream parado com sucesso', 4);
       } else {
-        const data = await response.json();
-        indexStore.msgAlert('error', data.message || 'Erro ao parar o stream', 4);
+        indexStore.msgAlert('error', data || 'Erro ao parar o stream', 4);
       }
     })
     .catch((error) => {
       console.error('Error stopping stream:', error);
-      indexStore.msgAlert('error', 'Erro ao parar o stream', 4);
+      indexStore.msgAlert('error', `Erro ao parar o stream: ${error}`, 4);
     });
 }
 </script>
