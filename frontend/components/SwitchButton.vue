@@ -21,7 +21,6 @@
           @mouseleave="onMouseLeave"
           @focus="onFocus"
           @blur="onBlur"
-          @keydown="onKeyDown"
           @mousedown="onMouseDown"
           @mouseup="onMouseUp"
         ></div>
@@ -32,23 +31,42 @@
   </div>
 </template>
 
-<script setup>
-import { onMounted, ref } from 'vue';
+<script setup lang="ts">
+import { onMounted, ref, watch } from 'vue';
 
 const colorMode = useColorMode();
 
 const isOn = ref(false);
-const knob = ref(null);
+const knob = ref<HTMLDivElement | null>(null);
 const switchButton = ref(null);
 const isKeyboardFocused = ref(false);
-let focusByTab = true; // Flag to check if the focus was done via tab
-
-const authStore = useAuth();
-const indexStore = useIndex(); // Supondo que o indexStore seja importado dessa forma
-const contentType = { 'content-type': 'application/json;charset=UTF-8' };
-
 const serviceStatus = ref('');
 const errorMessage = ref('');
+const channel = ref({} as Channel); // Canal atual
+
+let focusByTab = true;
+
+const authStore = useAuth();
+const configStore = useConfig();
+const indexStore = useIndex();
+const { i } = storeToRefs(configStore); // Índice do canal selecionado
+const contentType = { 'content-type': 'application/json;charset=UTF-8' };
+
+// Atualiza o canal atual quando o índice muda
+watch(i, updateChannel);
+
+onMounted(() => {
+  updateChannel();
+  checkServiceStatus();
+});
+
+function updateChannel() {
+  if (configStore.channels[i.value]) {
+    channel.value = configStore.channels[i.value];
+  } else {
+    errorMessage.value = 'Canal inválido selecionado.';
+  }
+}
 
 // Handle mouse down to distinguish between keyboard and mouse focus
 const onMouseDown = () => {
@@ -57,28 +75,43 @@ const onMouseDown = () => {
 };
 
 const handleBackgroundClick = () => {
+  if (!channel.value.id) {
+    errorMessage.value = 'Nenhum canal selecionado.';
+    return;
+  }
+
   isOn.value = !isOn.value;
   toggleService();
 };
 
 const onMouseEnter = () => {
-  knob.value.style.boxShadow = '0 0 10px rgba(0,0,0,0.3)';
+  if (knob.value) {
+    knob.value.style.boxShadow = '0 0 10px rgba(0,0,0,0.3)';
+  }
 };
 
 const onMouseLeave = () => {
-  knob.value.style.boxShadow = 'none';
+  if (knob.value) {
+    knob.value.style.boxShadow = 'none';
+  }
 };
 
 const onFocus = () => {
-  knob.value.style.outline = '2px solid rgba(0,0,0,0.5)';
+  if (knob.value) {
+    knob.value.style.outline = '2px solid rgba(0,0,0,0.5)';
+  }
 };
 
 const onBlur = () => {
-  knob.value.style.outline = 'none';
+  if (knob.value) {
+    knob.value.style.outline = 'none';
+  }
 };
 
 const onMouseUp = () => {
-  knob.value.style.outline = 'none'; // Remove the outline when the mouse button is released
+  if (knob.value) {
+    knob.value.style.outline = 'none'; // Remove the outline when the mouse button is released
+  }
 };
 
 const onSwitchFocus = () => {
@@ -92,21 +125,26 @@ const onSwitchBlur = () => {
   focusByTab = true; // Reset flag on blur
 };
 
-const onSwitchKeyDown = (event) => {
+const onSwitchKeyDown = (event: { code: string; }) => {
   if (event.code === 'Space') {
     handleBackgroundClick();
   }
 };
 
-// Funções para verificar e alterar o estado do serviço
+// Verifica o status do serviço para o canal atual
 async function checkServiceStatus() {
-  await fetch('/api/ytbot/status', {
+  if (!channel.value.id) {
+    errorMessage.value = 'Nenhum canal selecionado.';
+    return;
+  }
+
+  await fetch(`/api/ytbot/status/${channel.value.id}`, {
     method: 'GET',
     headers: { ...contentType, ...authStore.authHeader },
   })
     .then(async (response) => {
       if (!response.ok) {
-        throw new Error(`HTTP Error: ${response.status}`);
+        indexStore.msgAlert('error', `HTTP Error: ${response.status}`, 4);
       }
       const data = await response.json();
 
@@ -137,9 +175,16 @@ async function checkServiceStatus() {
     });
 }
 
+// Alterna o estado do serviço para o canal atual
 async function toggleService() {
+  if (!channel.value.id) {
+    errorMessage.value = 'Nenhum canal selecionado.';
+    return;
+  }
+
   const action = isOn.value ? 'start' : 'stop';
-  await fetch('/api/ytbot/control', {
+
+  await fetch(`/api/ytbot/control/${channel.value.id}`, {
     method: 'POST',
     headers: { ...contentType, ...authStore.authHeader },
     body: JSON.stringify({ action }),
@@ -166,12 +211,8 @@ async function toggleService() {
       indexStore.msgAlert('error', `Erro ao ${isOn.value ? 'parar' : 'iniciar'} o Bot de live: ${error.message}`, 4);
     });
 }
-
-onMounted(() => {
-  checkServiceStatus();
-});
 </script>
 
 <style scoped>
-
+/* Estilos podem ser mantidos conforme a necessidade */
 </style>
