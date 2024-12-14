@@ -1681,13 +1681,14 @@ pub mod ytbot {
         }
     }
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    #[serde(rename_all = "snake_case")]
     pub enum ServiceAction {
         Start,
         Stop,
     }
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Deserialize, Serialize, Clone)]
     pub struct ServiceControlParams {
         pub action: ServiceAction,
     }
@@ -1704,7 +1705,7 @@ pub mod ytbot {
         _role: AuthDetails<Role>,
         _user: web::ReqData<UserMeta>,
     ) -> impl Responder {
-        let action = &req.action;
+        let action = req.action.clone();
         let channel_id = *id;
     
         match action {
@@ -1972,9 +1973,16 @@ pub mod livestream {
         Err(ServiceError::BadRequest("Nenhuma porta válida encontrada".to_string()))
     }
     
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    #[serde(rename_all = "snake_case")]
+    pub enum StreamAction {
+        Start,
+        Stop,
+    }
+
     #[derive(Debug, Deserialize)]
     pub struct StreamParams {
-        pub action: String,
+        pub action: StreamAction,
         pub url: Option<String>,
     }
     
@@ -1990,16 +1998,11 @@ pub mod livestream {
         _role: AuthDetails<Role>,
         _user: web::ReqData<UserMeta>,
     ) -> impl Responder {
-        let action = req.action.trim().to_lowercase();
-        if !["start", "stop"].contains(&action.as_str()) {
-            warn!("Ação inválida recebida: {}", req.action);
-            return HttpResponse::BadRequest().json("Ação inválida. Use 'start' ou 'stop'.");
-        }
-    
+        let action = req.action.clone();
         let channel_id = *id;
     
-        match action.as_str() {
-            "start" => {
+        match action {
+            StreamAction::Start => {
                 let mut processes = STREAM_PROCESSES.lock().await;
                 if processes.contains_key(&channel_id) {
                     info!("Stream já está em execução para o canal {}", channel_id);
@@ -2246,7 +2249,7 @@ pub mod livestream {
                     HttpResponse::BadRequest().json("URL inválida")
                 }
             }
-            "stop" => {
+            StreamAction::Stop => {
                 let mut processes = STREAM_PROCESSES.lock().await;
                 if let Some((streamlink_child, ffmpeg_child)) = processes.remove(&channel_id) {
                     async fn kill_and_wait_with_timeout(child: Arc<AsyncMutex<Child>>) -> Result<(), String> {
@@ -2283,10 +2286,6 @@ pub mod livestream {
                     info!("Nenhum stream está em execução para o canal {}", channel_id);
                     HttpResponse::BadRequest().json("Nenhum stream está em execução")
                 }
-            }
-            _ => {
-                warn!("Ação inválida recebida: {}", action);
-                HttpResponse::BadRequest().json("Ação inválida")
             }
         }
     }

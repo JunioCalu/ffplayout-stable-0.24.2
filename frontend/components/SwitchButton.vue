@@ -185,7 +185,7 @@ async function toggleService() {
     return;
   }
 
-  const action = isOn.value ? 'start' : 'stop';
+  const action = isOn.value ? 'Start' : 'Stop';
 
   await fetch(`/api/ytbot/control/${channel.value.id}`, {
     method: 'POST',
@@ -198,20 +198,20 @@ async function toggleService() {
       if (response.ok) {
         serviceStatus.value = isOn.value ? 'On' : 'Off';
         errorMessage.value = ''; // Clear error message
-        indexStore.msgAlert('success', `Bot de live ${action === 'start' ? 'iniciado' : 'parado'} com sucesso`, 4);
+        indexStore.msgAlert('success', `Bot de live ${action === 'Start' ? 'Iniciado' : 'Parado'} com sucesso`, 4);
       } else {
-        console.error(`Failed to ${action === 'start' ? 'start' : 'stop'} the service: `, data);
-        errorMessage.value = `Failed to ${action === 'start' ? 'start' : 'stop'} the service: ${JSON.stringify(data)}`;
+        console.error(`Failed to ${action === 'Start' ? 'Start' : 'Stop'} the service: `, data);
+        errorMessage.value = `Failed to ${action === 'Start' ? 'Start' : 'Stop'} the service: ${JSON.stringify(data)}`;
         isOn.value = false; // Set isOn to false if a failure occurs
-        indexStore.msgAlert('error', `Falha ao ${action === 'start' ? 'iniciar' : 'parar'} o Bot de live: ${JSON.stringify(data)}`, 4);
+        indexStore.msgAlert('error', `Falha ao ${action === 'Start' ? 'Iniciar' : 'Parar'} o Bot de live: ${JSON.stringify(data)}`, 4);
       }
     })
     .catch((error) => {
       console.error(`Error while ${isOn.value ? 'stopping' : 'starting'} the service: `, error);
       serviceStatus.value = 'Error';
-      errorMessage.value = `Error while ${isOn.value ? 'stopping' : 'starting'} the service: ${error.message}`;
+      errorMessage.value = `Error while ${isOn.value ? 'Stopping' : 'Starting'} the service: ${error.message}`;
       isOn.value = false; // Set isOn to false if an error occurs
-      indexStore.msgAlert('error', `Erro ao ${isOn.value ? 'parar' : 'iniciar'} o Bot de live: ${error.message}`, 4);
+      indexStore.msgAlert('error', `Erro ao ${isOn.value ? 'Parar' : 'Iniciar'} o Bot de live: ${error.message}`, 4);
     });
 }
 </script>

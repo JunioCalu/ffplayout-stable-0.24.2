@@ -116,7 +116,7 @@ async function startStream() {
     method: 'POST',
     headers: { ...contentType, ...authStore.authHeader },
     body: JSON.stringify({
-      action: 'start',
+      action: 'Start',
       url: liveUrl.value,
     }),
   })
@@ -144,7 +144,7 @@ async function stopStream() {
   return fetch(`/api/livestream/control/${channel.value.id}`, {
     method: 'POST',
     headers: { ...contentType, ...authStore.authHeader },
-    body: JSON.stringify({ action: 'stop' }),
+    body: JSON.stringify({ action: 'Stop' }),
   })
     .then(async (response) => {
       const data = await response.json();
