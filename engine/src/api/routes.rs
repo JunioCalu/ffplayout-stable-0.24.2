@@ -1598,7 +1598,6 @@ pub async fn get_system_stat(
     Ok(web::Json(stat))
 }
 
-// Módulo ytbot
 pub mod ytbot {
     use super::*;
 
@@ -1683,8 +1682,14 @@ pub mod ytbot {
     }
 
     #[derive(Debug, Deserialize)]
+    pub enum ServiceAction {
+        Start,
+        Stop,
+    }
+
+    #[derive(Debug, Deserialize)]
     pub struct ServiceControlParams {
-        pub action: String,
+        pub action: ServiceAction,
     }
     
     #[post("/ytbot/control/{id}")]
@@ -1699,16 +1704,11 @@ pub mod ytbot {
         _role: AuthDetails<Role>,
         _user: web::ReqData<UserMeta>,
     ) -> impl Responder {
-        let action = req.action.trim().to_lowercase();
-        if !["start", "stop"].contains(&action.as_str()) {
-            warn!("Ação inválida recebida: {}", req.action);
-            return HttpResponse::BadRequest().json("Ação inválida. Use 'start' ou 'stop'.");
-        }
-    
+        let action = &req.action;
         let channel_id = *id;
     
-        match action.as_str() {
-            "start" => {
+        match action {
+            ServiceAction::Start => {
                 let mut processes = YTBOT_PROCESSES.lock().await;
                 if processes.contains_key(&channel_id) {
                     info!("O ytbot já está em execução para o canal {}", channel_id);
@@ -1799,7 +1799,7 @@ pub mod ytbot {
                 info!("Processo do ytbot iniciado com sucesso para canal {}", channel_id);
                 HttpResponse::Ok().json("ytbot iniciado com sucesso")
             }
-            "stop" => {
+            ServiceAction::Stop => {
                 let mut processes = YTBOT_PROCESSES.lock().await;
                 if let Some(child) = processes.remove(&channel_id) {
                     async fn kill_and_wait_with_timeout(child: Arc<AsyncMutex<Child>>) -> Result<(), String> {
@@ -1826,10 +1826,6 @@ pub mod ytbot {
                     info!("Nenhum processo do ytbot em execução para o canal {}", channel_id);
                     HttpResponse::BadRequest().json("Nenhum processo do ytbot em execução")
                 }
-            }
-            _ => {
-                warn!("Ação inválida recebida: {}", action);
-                HttpResponse::BadRequest().json("Ação inválida")
             }
         }
     }
