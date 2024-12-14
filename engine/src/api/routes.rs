@@ -1917,9 +1917,9 @@ pub mod livestream {
         match is_ffmpeg_livestream_active(*id).await {
             Ok(active) => {
                 if active {
-                    HttpResponse::Ok().json(serde_json::json!({"status": "active"}))
+                    HttpResponse::Ok().json(json!({"status": "active"}))
                 } else {
-                    HttpResponse::Ok().json(serde_json::json!({"status": "inactive"}))
+                    HttpResponse::Ok().json(json!({"status": "inactive"}))
                 }
             }
             Err(e) => {
@@ -1927,6 +1927,25 @@ pub mod livestream {
                 HttpResponse::InternalServerError().json("Erro ao verificar o status do ffmpeg")
             }
         }
+    }
+
+    async fn get_streamlink_path() -> Option<String> {
+        // Verifica se a variável de ambiente STREAMLINK_PATH está definida e se o caminho é válido
+        if let Ok(path) = env::var("STREAMLINK_PATH") {
+            if fs::metadata(&path).await.is_ok() {
+                return Some(path);
+            }
+        }
+    
+        // Tenta encontrar o streamlink no diretório de instalação padrão do usuário
+        if let Some(home_dir) = home_dir() {
+            let default_path = home_dir.join("livebot/venv/bin/streamlink");
+            if fs::metadata(&default_path).await.is_ok() {
+                return Some(default_path.to_string_lossy().to_string());
+            }
+        }
+    
+        None
     }
     
     async fn extract_rtmp_stream_details(
@@ -2001,25 +2020,14 @@ pub mod livestream {
     
                 if let Ok(parsed_url) = Url::parse(url) {
                     // Verifica o caminho do executável do streamlink
-                    let streamlink_path = if let Ok(path) = env::var("STREAMLINK_PATH") {
-                        Path::new(&path).to_path_buf()
-                    } else {
-                        let home_dir = match home_dir() {
-                            Some(path) => path,
-                            None => {
-                                error!("Não foi possível determinar o diretório HOME");
-                                return HttpResponse::InternalServerError()
-                                    .json("Erro ao iniciar o streaming");
-                            }
-                        };
-                        home_dir.join("livebot/venv/bin/streamlink")
+                    let streamlink_path = match get_streamlink_path().await {
+                        Some(path) => path,
+                        None => {
+                            error!("Executável do streamlink não encontrado");
+                            return HttpResponse::InternalServerError()
+                                .json("Executável do streamlink não encontrado");
+                        }
                     };
-    
-                    if !streamlink_path.exists() {
-                        error!("O executável do streamlink não foi encontrado em {:?}", streamlink_path);
-                        return HttpResponse::InternalServerError()
-                            .json("Executável do streamlink não encontrado");
-                    }
     
                     let ffmpeg_path = match get_ffmpeg_path().await {
                         Some(path) => path,
