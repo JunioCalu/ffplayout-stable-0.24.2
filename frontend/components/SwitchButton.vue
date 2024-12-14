@@ -148,6 +148,9 @@ async function checkServiceStatus() {
       }
       const data = await response.json();
 
+      // Adicione o log aqui para verificar o conteúdo de `data`
+      console.log('Response data:', data);
+
       if (data.status === 'active') {
         isOn.value = true;
         serviceStatus.value = 'On';
