@@ -85,8 +85,8 @@ use url::Url;
 //use reqwest::Method;
 //use shell_escape::escape;
 //use std::borrow::Cow;
+//use serde_json::json;
 use actix_web::Scope;
-use serde_json::json;
 use thiserror::Error;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::timeout;
@@ -1656,6 +1656,18 @@ pub mod ytbot {
         }
     }
 
+    #[derive(Debug, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum ServiceStatus {
+        Active,
+        Inactive,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct ServiceStatusResponse {
+        pub status: ServiceStatus,
+    }
+
     #[get("/ytbot/status/{id}")]
     #[protect(
         any("Role::GlobalAdmin", "Role::ChannelAdmin", "Role::User"),
@@ -1664,15 +1676,19 @@ pub mod ytbot {
     pub async fn ytbot_service_status(
         id: web::Path<i32>,
         _role: AuthDetails<Role>,
-        _user: web::ReqData<UserMeta>,
+        _user: web::ReqData<UserMeta>
     ) -> impl Responder {
         match is_ytbot_active(*id).await {
             Ok(active) => {
-                if active {
-                    HttpResponse::Ok().json(json!({"status": "active"}))
+                let status = if active {
+                    ServiceStatus::Active
                 } else {
-                    HttpResponse::Ok().json(json!({"status": "inactive"}))
-                }
+                    ServiceStatus::Inactive
+                };
+                let response = ServiceStatusResponse {
+                    status,
+                };
+                HttpResponse::Ok().json(response)
             }
             Err(e) => {
                 error!("Erro ao verificar o status do ytbot: {}", e);
