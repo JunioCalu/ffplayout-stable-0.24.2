@@ -149,6 +149,7 @@ async function checkServiceStatus() {
 
       // Analisa a resposta original como JSON
       const data = await response.json();
+
       if (!response.ok) {
         indexStore.msgAlert('error', `HTTP Error: ${rawData}`, 4);
       }
@@ -196,7 +197,21 @@ async function toggleService() {
     body: JSON.stringify({ action }),
   })
     .then(async (response) => {
+      // Clona a resposta para consumir o corpo várias vezes
+      const clonedResponse = response.clone();
+
+      // Obtém o texto bruto da resposta clonada
+      const rawData = await clonedResponse.text();
+
+      // Registra o texto bruto da resposta para depuração
+      //console.log('SwitchButton resposta bruta do backend:', rawData);
+
+      // Analisa a resposta original como JSON
       const data = await response.json();
+
+      if (!response.ok) {
+        indexStore.msgAlert('error', `HTTP Error: ${rawData}`, 4);
+      }
 
       if (response.ok) {
         serviceStatus.value = isOn.value ? 'On' : 'Off';
@@ -207,6 +222,7 @@ async function toggleService() {
         errorMessage.value = `Failed to ${action === 'start' ? 'start' : 'stop'} the service: ${JSON.stringify(data)}`;
         isOn.value = false; // Set isOn to false if a failure occurs
         indexStore.msgAlert('error', `Falha ao ${action === 'start' ? 'Iniciar' : 'Parar'} o Bot de live: ${JSON.stringify(data)}`, 4);
+        console.error('SwitchButton resposta bruta do backend:', rawData);
       }
     })
     .catch((error) => {
