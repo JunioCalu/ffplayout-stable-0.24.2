@@ -116,17 +116,20 @@ async function startStream() {
     method: 'POST',
     headers: { ...contentType, ...authStore.authHeader },
     body: JSON.stringify({
-      action: 'Start',
+      action: 'start',
       url: liveUrl.value,
     }),
   })
     .then(async (response) => {
-      const data = await response.json();
+      // Depuração: Exibir o conteúdo bruto da resposta
+      const data = await response.text();
+      //console.log('Resposta bruta do backend:', data);
       if (response.ok) {
         isStreaming.value = true;
-        indexStore.msgAlert('success', 'Stream iniciado com sucesso', 4);
+        indexStore.msgAlert('success', data, 4);
       } else {
         indexStore.msgAlert('error', data || 'Erro ao iniciar o stream', 4);
+        console.error('Resposta bruta do backend:', data);
       }
     })
     .catch((error) => {
@@ -144,15 +147,17 @@ async function stopStream() {
   return fetch(`/api/livestream/control/${channel.value.id}`, {
     method: 'POST',
     headers: { ...contentType, ...authStore.authHeader },
-    body: JSON.stringify({ action: 'Stop' }),
+    body: JSON.stringify({ action: 'stop' }),
   })
     .then(async (response) => {
-      const data = await response.json();
+      const data = await response.text();
+      //console.log('Resposta bruta do backend:', data);
       if (response.ok) {
         isStreaming.value = false;
-        indexStore.msgAlert('success', 'Stream parado com sucesso', 4);
+        indexStore.msgAlert('success', data, 4);
       } else {
         indexStore.msgAlert('error', data || 'Erro ao parar o stream', 4);
+        console.error('Resposta bruta do backend:', data);
       }
     })
     .catch((error) => {
