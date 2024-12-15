@@ -4,7 +4,7 @@
       <div
         ref="switchButton"
         class="relative w-16 h-8 rounded-full shadow-md cursor-pointer"
-        :class="{ 'bg-[#4caf50]': isOn, 'bg-[#f44336]': !isOn, 'focus:outline focus:outline-white focus:outline-2 focus:outline-offset-2': isKeyboardFocused }"
+        :class="{ 'bg-[#4caf50]': channel.isOn, 'bg-[#f44336]': !channel.isOn, 'focus:outline focus:outline-white focus:outline-2 focus:outline-offset-2': channel.isKeyboardFocused }"
         tabindex="0"
         @click="handleBackgroundClick"
         @focus="onSwitchFocus"
@@ -15,7 +15,7 @@
         <div
           ref="knob"
           class="absolute top-1 w-6 h-6 bg-white rounded-full shadow-md cursor-pointer transition-transform duration-300"
-          :style="{ transform: isOn ? 'translateX(36px)' : 'translateX(4px)' }"
+          :style="{ transform: channel.isOn ? 'translateX(36px)' : 'translateX(4px)' }"
           tabindex="0"
           @mouseenter="onMouseEnter"
           @mouseleave="onMouseLeave"
@@ -25,7 +25,7 @@
           @mouseup="onMouseUp"
         ></div>
       </div>
-      <span class="text-base">{{ serviceStatus }}</span>
+      <span class="text-base">{{ channel.serviceStatus }}</span>
     </div>
     <div v-if="errorMessage" class="text-red-500 mt-2">{{ errorMessage }}</div>
   </div>
@@ -34,35 +34,48 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue';
 
+// Defina o tipo estendido para Channel
+interface ExtendedChannel extends Channel {
+  isOn: boolean;
+  serviceStatus: string;
+  isKeyboardFocused: boolean;
+  focusByTab: boolean;
+  knob?: HTMLDivElement | null;
+}
+
 const colorMode = useColorMode();
-
-const isOn = ref(false);
-const knob = ref<HTMLDivElement | null>(null);
-const switchButton = ref(null);
-const isKeyboardFocused = ref(false);
-const serviceStatus = ref('');
-const errorMessage = ref('');
-const channel = ref({} as Channel); // Canal atual
-
-let focusByTab = true;
-
 const authStore = useAuth();
 const configStore = useConfig();
 const indexStore = useIndex();
 const { i } = storeToRefs(configStore); // Índice do canal selecionado
 const contentType = { 'content-type': 'application/json;charset=UTF-8' };
 
-// Atualiza o canal atual quando o índice muda
-watch(i, updateChannel);
+const channel = ref({} as ExtendedChannel); // Canal atual
+const errorMessage = ref('');
 
+// Inicializa os estados dos canais
 onMounted(() => {
-  updateChannel();
-  checkServiceStatus();
+  // configStore.channels.forEach((channel: Channel) => {
+  //   (channel as ExtendedChannel).isOn = false;
+  //   (channel as ExtendedChannel).serviceStatus = 'Off';
+  //   (channel as ExtendedChannel).isKeyboardFocused = false;
+  //   (channel as ExtendedChannel).focusByTab = true;
+  // });
+
+  updateChannel(configStore.i);
+  checkServiceStatus(configStore.channels[configStore.i] as ExtendedChannel);
 });
 
-function updateChannel() {
-  if (configStore.channels[i.value]) {
-    channel.value = configStore.channels[i.value];
+// Observa mudanças no índice do canal
+watch(() => configStore.i, (newIndex) => {
+  updateChannel(newIndex);
+  checkServiceStatus(configStore.channels[newIndex] as ExtendedChannel);
+});
+
+function updateChannel(index: number) {
+  if (configStore.channels[index]) {
+    channel.value = configStore.channels[index] as ExtendedChannel;
+    indexStore.msgAlert('info', `Verificando status do canal: ${channel.value.name}`, 2);
   } else {
     errorMessage.value = 'Canal inválido selecionado.';
   }
@@ -70,8 +83,8 @@ function updateChannel() {
 
 // Handle mouse down to distinguish between keyboard and mouse focus
 const onMouseDown = () => {
-  focusByTab = false; // Set flag to false on mouse down
-  isKeyboardFocused.value = false; // Do not apply keyboard-focus class
+  channel.value.focusByTab = false; // Set flag to false on mouse down
+  channel.value.isKeyboardFocused = false; // Do not apply keyboard-focus class
 };
 
 const handleBackgroundClick = () => {
@@ -80,49 +93,49 @@ const handleBackgroundClick = () => {
     return;
   }
 
-  isOn.value = !isOn.value;
+  channel.value.isOn = !channel.value.isOn;
   toggleService();
 };
 
 const onMouseEnter = () => {
-  if (knob.value) {
-    knob.value.style.boxShadow = '0 0 10px rgba(0,0,0,0.3)';
+  if (channel.value.knob) {
+    channel.value.knob.style.boxShadow = '0 0 10px rgba(0,0,0,0.3)';
   }
 };
 
 const onMouseLeave = () => {
-  if (knob.value) {
-    knob.value.style.boxShadow = 'none';
+  if (channel.value.knob) {
+    channel.value.knob.style.boxShadow = 'none';
   }
 };
 
 const onFocus = () => {
-  if (knob.value) {
-    knob.value.style.outline = '2px solid rgba(0,0,0,0.5)';
+  if (channel.value.knob) {
+    channel.value.knob.style.outline = '2px solid rgba(0,0,0,0.5)';
   }
 };
 
 const onBlur = () => {
-  if (knob.value) {
-    knob.value.style.outline = 'none';
+  if (channel.value.knob) {
+    channel.value.knob.style.outline = 'none';
   }
 };
 
 const onMouseUp = () => {
-  if (knob.value) {
-    knob.value.style.outline = 'none'; // Remove the outline when the mouse button is released
+  if (channel.value.knob) {
+    channel.value.knob.style.outline = 'none'; // Remove the outline when the mouse button is released
   }
 };
 
 const onSwitchFocus = () => {
-  if (focusByTab) { // Only apply the class if focused via keyboard
-    isKeyboardFocused.value = true;
+  if (channel.value.focusByTab) { // Only apply the class if focused via keyboard
+    channel.value.isKeyboardFocused = true;
   }
 };
 
 const onSwitchBlur = () => {
-  isKeyboardFocused.value = false; // Remove the class on blur
-  focusByTab = true; // Reset flag on blur
+  channel.value.isKeyboardFocused = false; // Remove the class on blur
+  channel.value.focusByTab = true; // Reset flag on blur
 };
 
 const onSwitchKeyDown = (event: { code: string; }) => {
@@ -132,22 +145,14 @@ const onSwitchKeyDown = (event: { code: string; }) => {
 };
 
 // Verifica o status do serviço para o canal atual
-async function checkServiceStatus() {
-  await fetch(`/api/ytbot/status/${channel.value.id}`, {
+async function checkServiceStatus(channel: ExtendedChannel) {
+  await fetch(`/api/ytbot/status/${channel.id}`, {
     method: 'GET',
     headers: { ...contentType, ...authStore.authHeader },
   })
     .then(async (response) => {
-      // Clona a resposta para consumir o corpo várias vezes
       const clonedResponse = response.clone();
-
-      // Obtém o texto bruto da resposta clonada
       const rawData = await clonedResponse.text();
-
-      // Registra o texto bruto da resposta para depuração
-      //console.log('SwitchButton resposta bruta do backend:', rawData);
-
-      // Analisa a resposta original como JSON
       const data = await response.json();
 
       if (!response.ok) {
@@ -155,19 +160,19 @@ async function checkServiceStatus() {
       }
 
       if (data.status === 'active') {
-        isOn.value = true;
-        serviceStatus.value = 'On';
+        channel.isOn = true;
+        channel.serviceStatus = 'On';
         errorMessage.value = ''; // Clear error message
         indexStore.msgAlert('success', 'Bot de live ativo', 3);
       } else if (data.status === 'inactive') {
-        isOn.value = false;
-        serviceStatus.value = 'Off';
+        channel.isOn = false;
+        channel.serviceStatus = 'Off';
         errorMessage.value = ''; // Clear error message
         indexStore.msgAlert('warning', 'Bot de live inativo', 3);
       } else {
         console.error('Unexpected status: ', data);
         errorMessage.value = `Unexpected status: ${JSON.stringify(data)}`;
-        isOn.value = false; // Set isOn to false if an unexpected status is received
+        channel.isOn = false; // Set isOn to false if an unexpected status is received
         indexStore.msgAlert('error', `Status inesperado: ${data}`, 4);
         console.error('SwitchButton resposta bruta do backend:', rawData);
         return;
@@ -175,9 +180,9 @@ async function checkServiceStatus() {
     })
     .catch((error) => {
       console.error('Failed to check service status: ', error);
-      serviceStatus.value = 'Error';
+      channel.serviceStatus = 'Error';
       errorMessage.value = `Failed to check service status: ${error.message}`;
-      isOn.value = false; // Set isOn to false if an error occurs
+      channel.isOn = false; // Set isOn to false if an error occurs
       indexStore.msgAlert('error', `Erro ao verificar status do Bot de live: ${error.message}`, 4);
     });
 }
@@ -189,7 +194,7 @@ async function toggleService() {
     return;
   }
 
-  const action = isOn.value ? 'start' : 'stop';
+  const action = channel.value.isOn ? 'start' : 'stop';
 
   await fetch(`/api/ytbot/control/${channel.value.id}`, {
     method: 'POST',
@@ -197,16 +202,8 @@ async function toggleService() {
     body: JSON.stringify({ action }),
   })
     .then(async (response) => {
-      // Clona a resposta para consumir o corpo várias vezes
       const clonedResponse = response.clone();
-
-      // Obtém o texto bruto da resposta clonada
       const rawData = await clonedResponse.text();
-
-      // Registra o texto bruto da resposta para depuração
-      //console.log('SwitchButton resposta bruta do backend:', rawData);
-
-      // Analisa a resposta original como JSON
       const data = await response.json();
 
       if (!response.ok) {
@@ -214,27 +211,23 @@ async function toggleService() {
       }
 
       if (response.ok) {
-        serviceStatus.value = isOn.value ? 'On' : 'Off';
+        channel.value.serviceStatus = channel.value.isOn ? 'On' : 'Off';
         errorMessage.value = ''; // Clear error message
         indexStore.msgAlert('success', `Bot de live ${action === 'start' ? 'Iniciado' : 'Parado'} com sucesso`, 4);
       } else {
         console.error(`Failed to ${action === 'start' ? 'start' : 'stop'} the service: `, data);
         errorMessage.value = `Failed to ${action === 'start' ? 'start' : 'stop'} the service: ${JSON.stringify(data)}`;
-        isOn.value = false; // Set isOn to false if a failure occurs
+        channel.value.isOn = false; // Set isOn to false if a failure occurs
         indexStore.msgAlert('error', `Falha ao ${action === 'start' ? 'Iniciar' : 'Parar'} o Bot de live: ${JSON.stringify(data)}`, 4);
         console.error('SwitchButton resposta bruta do backend:', rawData);
       }
     })
     .catch((error) => {
-      console.error(`Error while ${isOn.value ? 'stopping' : 'starting'} the service: `, error);
-      serviceStatus.value = 'Error';
-      errorMessage.value = `Error while ${isOn.value ? 'Stopping' : 'Starting'} the service: ${error.message}`;
-      isOn.value = false; // Set isOn to false if an error occurs
-      indexStore.msgAlert('error', `Erro ao ${isOn.value ? 'Parar' : 'Iniciar'} o Bot de live: ${error.message}`, 4);
+      console.error(`Error while ${channel.value.isOn ? 'stopping' : 'starting'} the service: `, error);
+      channel.value.serviceStatus = 'Error';
+      errorMessage.value = `Error while ${channel.value.isOn ? 'Stopping' : 'Starting'} the service: ${error.message}`;
+      channel.value.isOn = false; // Set isOn to false if an error occurs
+      indexStore.msgAlert('error', `Erro ao ${channel.value.isOn ? 'Parar' : 'Iniciar'} o Bot de live: ${error.message}`, 4);
     });
 }
 </script>
-
-<style scoped>
-/* Estilos podem ser mantidos conforme a necessidade */
-</style>
