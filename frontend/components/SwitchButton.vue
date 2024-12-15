@@ -138,12 +138,17 @@ async function checkServiceStatus() {
     headers: { ...contentType, ...authStore.authHeader },
   })
     .then(async (response) => {
+      // Clona a resposta para consumir o corpo várias vezes
+      const clonedResponse = response.clone();
+
+      // Obtém o texto bruto da resposta clonada
+      const rawData = await clonedResponse.text();
+
+      // Registra o texto bruto da resposta para depuração
+      //console.log('SwitchButton resposta bruta do backend:', rawData);
+
+      // Analisa a resposta original como JSON
       const data = await response.json();
-      const rawData = await response.text();
-
-      // Adicione o log aqui para verificar o conteúdo de `data`
-      console.error('SwitchButton resposta bruta do backend:', rawData);
-
       if (!response.ok) {
         indexStore.msgAlert('error', `HTTP Error: ${rawData}`, 4);
       }

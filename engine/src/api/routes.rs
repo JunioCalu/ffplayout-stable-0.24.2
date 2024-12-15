@@ -1668,7 +1668,7 @@ pub mod ytbot {
         pub status: ServiceStatus,
     }
 
-    #[get("/ytbot/status/{id}")]
+    #[get("/status/{id}")]
     #[protect(
         any("Role::GlobalAdmin", "Role::ChannelAdmin", "Role::User"),
         ty = "Role"
@@ -1709,7 +1709,7 @@ pub mod ytbot {
         pub action: ServiceAction,
     }
     
-    #[post("/ytbot/control/{id}")]
+    #[post("/control/{id}")]
     #[protect(
         any("Role::GlobalAdmin", "Role::ChannelAdmin", "Role::User"),
         ty = "Role"
@@ -1846,14 +1846,13 @@ pub mod ytbot {
             }
         }
     }
-                 // Expondo as rotas para uso externo
-             pub fn ytbot_routes() -> Scope {
-                web::scope("")
-                    .service(ytbot_service_status)
-                    .service(ytbot_control)
-            }
-    }
-
+    // Expondo as rotas para uso externo
+    pub fn ytbot_routes() -> Scope {
+        web::scope("/ytbot")
+        .service(ytbot_service_status)
+        .service(ytbot_control)
+        }
+}
 
 // Módulo livestream
 pub mod livestream {
@@ -1929,7 +1928,7 @@ pub mod livestream {
         pub status: ServiceStatus,
     }
 
-    #[get("/livestream/ffmpeg/status/{id}")]
+    #[get("/ffmpeg/status/{id}")]
     #[protect(
         any("Role::GlobalAdmin", "Role::ChannelAdmin", "Role::User"),
         ty = "Role"
@@ -2018,7 +2017,7 @@ pub mod livestream {
         pub url: Option<String>,
     }
     
-    #[post("/livestream/control/{id}")]
+    #[post("/control/{id}")]
     #[protect(
         any("Role::GlobalAdmin", "Role::ChannelAdmin", "Role::User"),
         ty = "Role"
@@ -2323,7 +2322,7 @@ pub mod livestream {
     }
     // Expondo as rotas para uso externo
     pub fn livestream_routes() -> Scope {
-        web::scope("")
+        web::scope("/livestream")
             .service(livestream_ffmpeg_status)
             .service(livestream_control)
     }

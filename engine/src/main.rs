@@ -112,7 +112,7 @@ async fn main() -> std::io::Result<()> {
         let thread_count = thread_counter();
 
         info!("Running ffplayout API, listen on http://{conn}");
-
+        
         let db_clone = pool.clone();
 
         // no 'allow origin' here, give it to the reverse proxy
