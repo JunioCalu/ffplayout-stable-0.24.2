@@ -1,38 +1,44 @@
 <template>
-  <div class="flex items-center justify-center gap-2 mt-5" :dark="colorMode.value === 'dark'">
+  <div class="flex flex-col md:flex-row items-center justify-center gap-4 mt-5 w-full">
     <!-- Streaming Input -->
-    <input
-      id="liveUrl"
-      v-model="liveUrl"
-      type="text"
-      placeholder="Insira o link do YouTube"
-      class="input input-bordered w-[700px] max-w-full focus:outline-white focus:outline-2"
-      name="liveUrl"
-    />
+    <div class="flex-1 w-full">
+      <input
+        id="liveUrl"
+        v-model="channel.liveUrl"
+        type="text"
+        placeholder="Insira o link do YouTube"
+        class="input input-bordered w-full focus:outline-white focus:outline-2"
+        name="liveUrl"
+        @input="saveLiveUrlToLocalStorage"
+      />
+    </div>
 
-    <!-- Start Button (verde opaco quando não iniciado, verde brilhante quando streaming) -->
-    <button
-      class="btn"
-      :class="{ 
-        'bg-green-500 text-white shadow-lg hover:bg-green-400': isStreaming,    /* Verde brilhante com sombra quando streaming */
-        'bg-green-700 text-white hover:bg-green-600': !isStreaming              /* Verde opaco com hover mais claro quando não iniciado */
-      }"
-      @click="startStream"
-    >
-      Start
-    </button>
+    <!-- Botões Start e Stop -->
+    <div class="flex gap-2">
+      <!-- Start Button -->
+      <button
+        class="btn"
+        :class="{ 
+          'bg-green-500 text-white shadow-lg hover:bg-green-400': channel.isStreaming,
+          'bg-green-700 text-white hover:bg-green-600': !channel.isStreaming
+        }"
+        @click="startStream"
+      >
+        Start
+      </button>
 
-    <!-- Stop Button (cinza brilhante quando não iniciado, vermelho claro brilhante quando streaming) -->
-    <button
-      class="btn"
-      :class="{ 
-        'bg-red-500 text-white shadow-lg hover:bg-red-400': isStreaming,       /* Vermelho brilhante com hover mais claro quando streaming */
-        'bg-gray-600 text-white hover:bg-gray-500': !isStreaming               /* Cinza brilhante com hover harmonioso quando não iniciado */
-      }"
-      @click="stopStream"
-    >
-      Stop
-    </button>
+      <!-- Stop Button -->
+      <button
+        class="btn"
+        :class="{ 
+          'bg-red-500 text-white shadow-lg hover:bg-red-400': channel.isStreaming,
+          'bg-gray-600 text-white hover:bg-gray-500': !channel.isStreaming
+        }"
+        @click="stopStream"
+      >
+        Stop
+      </button>
+    </div>
   </div>
 </template>
 
@@ -45,12 +51,17 @@ const colorMode = useColorMode();
 const configStore = useConfig();
 
 const { i } = storeToRefs(configStore); // Obter o índice do canal atualmente selecionado
-const channel = ref({} as Channel);
+const channel = ref({} as ExtendedChannel); // Usar o tipo estendido
 
-const liveUrl = ref('');
-const isStreaming = ref(false);
 const contentType = { 'content-type': 'application/json;charset=UTF-8' };
 const streamUpdateTimer = ref();
+
+// Definir o tipo estendido para Channel
+interface ExtendedChannel extends Channel {
+  isStreaming: boolean;
+  serviceStatus: string;
+  liveUrl: string; // Adicionar liveUrl ao tipo estendido
+}
 
 onMounted(() => {
   updateChannel();
@@ -67,8 +78,23 @@ onBeforeUnmount(() => {
 
 function updateChannel() {
   if (configStore.channels[i.value]) {
-    channel.value = { ...configStore.channels[i.value] }; // Atualizar o canal ativo
+    channel.value = { 
+      ...configStore.channels[i.value], 
+      liveUrl: getLiveUrlFromLocalStorage(configStore.channels[i.value].id) // Recuperar liveUrl do localStorage
+    } as ExtendedChannel; // Atualizar o canal ativo
   }
+}
+
+// Função para salvar liveUrl no localStorage
+function saveLiveUrlToLocalStorage() {
+  if (channel.value.id) {
+    localStorage.setItem(`liveUrl_${channel.value.id}`, channel.value.liveUrl);
+  }
+}
+
+// Função para recuperar liveUrl do localStorage
+function getLiveUrlFromLocalStorage(channelId: number): string {
+  return localStorage.getItem(`liveUrl_${channelId}`) || '';
 }
 
 async function streamStatus() {
@@ -93,7 +119,8 @@ async function getStreamStatus() {
     .then(async (response) => {
       const data = await response.json();
       if (response.ok) {
-        isStreaming.value = data.status === 'active';
+        channel.value.isStreaming = data.status === 'active'; // Atualizar o estado de streaming no canal
+        channel.value.serviceStatus = channel.value.isStreaming ? 'On' : 'Off'; // Atualizar o status do serviço
       } else {
         // Tratamento de erro em caso de falha na resposta da API
         indexStore.msgAlert('error', data.status || 'Erro ao obter status do stream', 4);
@@ -101,7 +128,8 @@ async function getStreamStatus() {
     })
     .catch((error) => {
       console.error('Error getting stream status:', error);
-      isStreaming.value = false;
+      channel.value.isStreaming = false; // Atualizar o estado de streaming no canal
+      channel.value.serviceStatus = 'Off'; // Atualizar o status do serviço
       indexStore.msgAlert('error', 'Erro ao obter status do stream', 4);
     });
 }
@@ -117,19 +145,17 @@ async function startStream() {
     headers: { ...contentType, ...authStore.authHeader },
     body: JSON.stringify({
       action: 'start',
-      url: liveUrl.value,
+      url: channel.value.liveUrl, // Usar a URL do canal selecionado
     }),
   })
     .then(async (response) => {
-      // Depuração: Exibir o conteúdo bruto da resposta
       const data = await response.text();
-      //console.log('Resposta bruta do backend:', data);
       if (response.ok) {
-        isStreaming.value = true;
+        channel.value.isStreaming = true; // Atualizar o estado de streaming no canal
+        channel.value.serviceStatus = 'On'; // Atualizar o status do serviço
         indexStore.msgAlert('success', data, 4);
       } else {
         indexStore.msgAlert('error', data || 'Erro ao iniciar o stream', 4);
-        console.error('Resposta bruta do backend:', data);
       }
     })
     .catch((error) => {
@@ -151,13 +177,12 @@ async function stopStream() {
   })
     .then(async (response) => {
       const data = await response.text();
-      //console.log('Resposta bruta do backend:', data);
       if (response.ok) {
-        isStreaming.value = false;
+        channel.value.isStreaming = false; // Atualizar o estado de streaming no canal
+        channel.value.serviceStatus = 'Off'; // Atualizar o status do serviço
         indexStore.msgAlert('success', data, 4);
       } else {
         indexStore.msgAlert('error', data || 'Erro ao parar o stream', 4);
-        console.error('Resposta bruta do backend:', data);
       }
     })
     .catch((error) => {
@@ -166,7 +191,3 @@ async function stopStream() {
     });
 }
 </script>
-
-<style scoped>
-
-</style>
