@@ -1676,9 +1676,16 @@ pub mod ytbot {
     pub async fn ytbot_service_status(
         id: web::Path<i32>,
         _role: AuthDetails<Role>,
-        _user: web::ReqData<UserMeta>
+        _user: web::ReqData<UserMeta>,
+        controllers: web::Data<Mutex<ChannelController>>, // Adicionado como parâmetro
     ) -> impl Responder {
-        match is_ytbot_active(*id).await {
+        let channel_id = *id;
+        let channel_name = match get_channel_name(channel_id, controllers.clone()).await {
+            Ok(name) => name,
+            Err(_) => return HttpResponse::InternalServerError().json("Erro ao acessar o canal"),
+        };
+
+        match is_ytbot_active(channel_id).await {
             Ok(active) => {
                 let status = if active {
                     ServiceStatus::Active
@@ -1691,8 +1698,8 @@ pub mod ytbot {
                 HttpResponse::Ok().json(response)
             }
             Err(e) => {
-                error!("Erro ao verificar o status do ytbot: {}", e);
-                HttpResponse::InternalServerError().json("Erro ao verificar o status do ytbot")
+                error!("Erro ao verificar o status do ytbot para o canal {}: {}", channel_name, e);
+                HttpResponse::InternalServerError().json(format!("Erro ao verificar o status do ytbot para o canal {}", channel_name))
             }
         }
     }
@@ -1717,35 +1724,34 @@ pub mod ytbot {
     pub async fn ytbot_control(
         id: web::Path<i32>,
         req: web::Json<ServiceControlParams>,
-        controllers: web::Data<Mutex<ChannelController>>,
+        controllers: web::Data<Mutex<ChannelController>>, // Adicionado como parâmetro
         _role: AuthDetails<Role>,
         _user: web::ReqData<UserMeta>,
     ) -> impl Responder {
         let action = req.action.clone();
         let channel_id = *id;
+        let channel_name = match get_channel_name(channel_id, controllers.clone()).await {
+            Ok(name) => name,
+            Err(_) => return HttpResponse::InternalServerError().json("Erro ao acessar o canal"),
+        };
     
         match action {
             ServiceAction::Start => {
                 let mut processes = YTBOT_PROCESSES.lock().await;
                 if processes.contains_key(&channel_id) {
-                    info!("O ytbot já está em execução para o canal {}", channel_id);
-                    return HttpResponse::BadRequest().json("O ytbot já está em execução");
+                    info!("O ytbot já está em execução para o canal {}", channel_name);
+                    return HttpResponse::BadRequest().json(format!("O ytbot já está em execução para o canal {}", channel_name));
                 }
     
-                let controller = match controllers.lock() {
-                    Ok(ctrl) => ctrl,
-                    Err(_) => return HttpResponse::InternalServerError().json("Erro interno ao obter o controller"),
-                };
+                // let controller = match controllers.lock() {
+                //     Ok(ctrl) => ctrl,
+                //     Err(_) => return HttpResponse::InternalServerError().json("Erro interno ao obter o controller"),
+                // };
     
-                let manager = match controller.get(channel_id) {
-                    Some(mgr) => mgr,
-                    None => return HttpResponse::BadRequest().json(format!("Canal ({}) não existe!", channel_id)),
-                };
-    
-                let channel_name = match manager.channel.lock() {
-                    Ok(ch) => ch.name.clone(),
-                    Err(_) => return HttpResponse::InternalServerError().json("Erro ao acessar o canal"),
-                };
+                // let manager = match controller.get(channel_id) {
+                //     Some(mgr) => mgr,
+                //     None => return HttpResponse::BadRequest().json(format!("Canal ({}) não existe!", channel_name)),
+                // };
     
                 let ytbot_path = match get_ytbot_path().await {
                     Some(path) => path,
@@ -1755,7 +1761,7 @@ pub mod ytbot {
                     }
                 };
     
-                let args = vec![channel_id.to_string(), channel_name];
+                let args = vec![channel_id.to_string(), channel_name.clone()];
     
                 let child = match Command::new(&ytbot_path)
                     .args(&args)
@@ -1765,8 +1771,8 @@ pub mod ytbot {
                 {
                     Ok(proc) => proc,
                     Err(e) => {
-                        error!("Erro ao iniciar o ytbot: {}", e);
-                        return HttpResponse::InternalServerError().json("Erro ao iniciar o ytbot");
+                        error!("Erro ao iniciar o ytbot para o canal {}: {}", channel_name, e);
+                        return HttpResponse::InternalServerError().json(format!("Erro ao iniciar o ytbot para o canal {}", channel_name));
                     }
                 };
     
@@ -1777,9 +1783,9 @@ pub mod ytbot {
                     match process_lock.stdout.take() {
                         Some(stdout) => stdout,
                         None => {
-                            error!("Falha ao obter o stdout do ytbot");
+                            error!("Falha ao obter o stdout do ytbot para o canal {}", channel_name);
                             let _ = process_lock.kill().await;
-                            return HttpResponse::InternalServerError().json("Falha ao iniciar o ytbot");
+                            return HttpResponse::InternalServerError().json(format!("Falha ao iniciar o ytbot para o canal {}", channel_name));
                         }
                     }
                 };
@@ -1789,9 +1795,9 @@ pub mod ytbot {
                     match process_lock.stderr.take() {
                         Some(stderr) => stderr,
                         None => {
-                            error!("Falha ao obter o stderr do ytbot");
+                            error!("Falha ao obter o stderr do ytbot para o canal {}", channel_name);
                             let _ = process_lock.kill().await;
-                            return HttpResponse::InternalServerError().json("Falha ao iniciar o ytbot");
+                            return HttpResponse::InternalServerError().json(format!("Falha ao iniciar o ytbot para o canal {}", channel_name));
                         }
                     }
                 };
@@ -1813,8 +1819,8 @@ pub mod ytbot {
                 });
     
                 processes.insert(channel_id, child);
-                info!("Processo do ytbot iniciado com sucesso para canal {}", channel_id);
-                HttpResponse::Ok().json("ytbot iniciado com sucesso")
+                info!("Processo do ytbot iniciado com sucesso para canal {}", channel_name);
+                HttpResponse::Ok().json(format!("ytbot iniciado com sucesso para o canal {}", channel_name))
             }
             ServiceAction::Stop => {
                 let mut processes = YTBOT_PROCESSES.lock().await;
@@ -1831,27 +1837,47 @@ pub mod ytbot {
     
                     match kill_and_wait_with_timeout(child).await {
                         Ok(()) => {
-                            info!("Processo do ytbot interrompido com sucesso para canal {}", channel_id);
-                            HttpResponse::Ok().json("ytbot interrompido com sucesso")
+                            info!("Processo do ytbot interrompido com sucesso para canal {}", channel_name);
+                            HttpResponse::Ok().json(format!("ytbot interrompido com sucesso para o canal {}", channel_name))
                         }
                         Err(e) => {
-                            error!("Erro ao interromper o ytbot para canal {}: {}", channel_id, e);
-                            HttpResponse::InternalServerError().json("Erro ao interromper o ytbot")
+                            error!("Erro ao interromper o ytbot para canal {}: {}", channel_name, e);
+                            HttpResponse::InternalServerError().json(format!("Erro ao interromper o ytbot para o canal {}", channel_name))
                         }
                     }
                 } else {
-                    info!("Nenhum processo do ytbot em execução para o canal {}", channel_id);
-                    HttpResponse::BadRequest().json("Nenhum processo do ytbot em execução")
+                    info!("Nenhum processo do ytbot em execução para o canal {}", channel_name);
+                    HttpResponse::BadRequest().json(format!("Nenhum processo do ytbot em execução para o canal {}", channel_name))
                 }
             }
         }
     }
+
+    async fn get_channel_name(channel_id: i32, controllers: web::Data<Mutex<ChannelController>>) -> Result<String, String> {
+        let controller = match controllers.lock() {
+            Ok(ctrl) => ctrl,
+            Err(_) => return Err("Erro interno ao obter o controller".to_string()),
+        };
+
+        let manager = match controller.get(channel_id) {
+            Some(mgr) => mgr,
+            None => return Err(format!("Canal ({}) não existe!", channel_id)),
+        };
+
+        let channel_name = match manager.channel.lock() {
+            Ok(ch) => ch.name.clone(),
+            Err(_) => return Err("Erro ao acessar o canal".to_string()),
+        };
+
+        Ok(channel_name)
+    }
+
     // Expondo as rotas para uso externo
     pub fn ytbot_routes() -> Scope {
         web::scope("/ytbot")
         .service(ytbot_service_status)
         .service(ytbot_control)
-        }
+    }
 }
 
 // Módulo livestream
@@ -1936,9 +1962,16 @@ pub mod livestream {
     pub async fn livestream_ffmpeg_status(
         id: web::Path<i32>,
         _role: AuthDetails<Role>,
-        _user: web::ReqData<UserMeta>
+        _user: web::ReqData<UserMeta>,
+        controllers: web::Data<Mutex<ChannelController>>, // Adicionado como parâmetro
     ) -> impl Responder {
-        match is_ffmpeg_livestream_active(*id).await {
+        let channel_id = *id;
+        let channel_name = match get_channel_name(channel_id, controllers.clone()).await {
+            Ok(name) => name,
+            Err(_) => return HttpResponse::InternalServerError().json("Erro ao acessar o canal"),
+        };
+
+        match is_ffmpeg_livestream_active(channel_id).await {
             Ok(active) => {
                 let status = if active {
                     ServiceStatus::Active
@@ -1951,8 +1984,8 @@ pub mod livestream {
                 HttpResponse::Ok().json(response)
             }
             Err(e) => {
-                error!("Erro ao verificar o status do ffmpeg: {}", e);
-                HttpResponse::InternalServerError().json("Erro ao verificar o status do ffmpeg")
+                error!("Erro ao verificar o status do ffmpeg para o canal {}: {}", channel_name, e);
+                HttpResponse::InternalServerError().json(format!("Erro ao verificar o status do ffmpeg para o canal {}", channel_name))
             }
         }
     }
@@ -2025,19 +2058,23 @@ pub mod livestream {
     pub async fn livestream_control(
         id: web::Path<i32>,
         req: web::Json<StreamParams>,
-        controllers: web::Data<Mutex<ChannelController>>,
+        controllers: web::Data<Mutex<ChannelController>>, // Adicionado como parâmetro
         _role: AuthDetails<Role>,
         _user: web::ReqData<UserMeta>,
     ) -> impl Responder {
         let action = req.action.clone();
         let channel_id = *id;
+        let channel_name = match get_channel_name(channel_id, controllers.clone()).await {
+            Ok(name) => name,
+            Err(_) => return HttpResponse::InternalServerError().json("Erro ao acessar o canal"),
+        };
     
         match action {
             StreamAction::Start => {
                 let mut processes = STREAM_PROCESSES.lock().await;
                 if processes.contains_key(&channel_id) {
-                    info!("Stream já está em execução para o canal {}", channel_id);
-                    return HttpResponse::BadRequest().json("Stream já está em execução");
+                    info!("Stream já está em execução para o canal {}", channel_name);
+                    return HttpResponse::BadRequest().json(format!("Stream já está em execução para o canal {}", channel_name));
                 }
     
                 let url = match &req.url {
@@ -2273,8 +2310,8 @@ pub mod livestream {
                     processes.insert(channel_id, (streamlink_process, ffmpeg_process));
                     drop(processes);
     
-                    info!("Stream iniciado para canal {}", channel_id);
-                    HttpResponse::Ok().json("Stream iniciado")
+                    info!("Stream iniciado para canal {}", channel_name);
+                    HttpResponse::Ok().json(format!("Stream iniciado para canal {}", channel_name))
                 } else {
                     info!("URL inválida");
                     HttpResponse::BadRequest().json("URL inválida")
@@ -2298,28 +2335,49 @@ pub mod livestream {
     
                     match (streamlink_result, ffmpeg_result) {
                         (Ok(()), Ok(())) => {
-                            info!("Stream parado para canal {}", channel_id);
-                            HttpResponse::Ok().json("Stream parado")
+                            info!("Stream parado para canal {}", channel_name);
+                            HttpResponse::Ok().json(format!("Stream parado para canal {}", channel_name))
                         }
                         (Err(e1), Err(e2)) => {
                             error!(
                                 "Erro ao parar streaming do canal {}: streamlink: {}, ffmpeg: {}",
-                                channel_id, e1, e2
+                                channel_name, e1, e2
                             );
-                            HttpResponse::InternalServerError().json("Erro ao parar o streaming")
+                            HttpResponse::InternalServerError().json(format!("Erro ao parar streaming do canal {}",
+                                channel_name))
                         }
                         (Err(e), _) | (_, Err(e)) => {
-                            error!("Erro ao parar um dos processos do streaming do canal {}: {}", channel_id, e);
-                            HttpResponse::InternalServerError().json("Erro ao parar o streaming")
+                            error!("Erro ao parar um dos processos do streaming do canal {}: {}", channel_name, e);
+                            HttpResponse::InternalServerError().json(format!("Erro ao parar um dos processos do streaming do canal {}", channel_name))
                         }
                     }
                 } else {
-                    info!("Nenhum stream está em execução para o canal {}", channel_id);
-                    HttpResponse::BadRequest().json("Nenhum stream está em execução")
+                    info!("Nenhum stream está em execução para o canal {}", channel_name);
+                    HttpResponse::BadRequest().json(format!("Nenhum stream está em execução para o canal {}", channel_name))
                 }
             }
         }
     }
+
+    async fn get_channel_name(channel_id: i32, controllers: web::Data<Mutex<ChannelController>>) -> Result<String, String> {
+        let controller = match controllers.lock() {
+            Ok(ctrl) => ctrl,
+            Err(_) => return Err("Erro interno ao obter o controller".to_string()),
+        };
+
+        let manager = match controller.get(channel_id) {
+            Some(mgr) => mgr,
+            None => return Err(format!("Canal ({}) não existe!", channel_id)),
+        };
+
+        let channel_name = match manager.channel.lock() {
+            Ok(ch) => ch.name.clone(),
+            Err(_) => return Err("Erro ao acessar o canal".to_string()),
+        };
+
+        Ok(channel_name)
+    }
+
     // Expondo as rotas para uso externo
     pub fn livestream_routes() -> Scope {
         web::scope("/livestream")

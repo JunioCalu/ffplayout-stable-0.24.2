@@ -92,5 +92,6 @@
         "uuids",
         "webm",
         "zerolatency"
-    ]
+    ],
+    "remote.autoForwardPortsFallback": 0
 }
