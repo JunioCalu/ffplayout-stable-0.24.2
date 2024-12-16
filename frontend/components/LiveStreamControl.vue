@@ -43,6 +43,7 @@
 </template>
 
 <script setup lang="ts">
+import log from 'video.js/dist/types/utils/log';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 const authStore = useAuth();
@@ -117,13 +118,16 @@ async function getStreamStatus() {
     headers: { ...contentType, ...authStore.authHeader },
   })
     .then(async (response) => {
+      const clonedResponse = response.clone();
+      const rawData = await clonedResponse.text();
+      console.log("getStreamStatus: ", rawData);
       const data = await response.json();
       if (response.ok) {
         channel.value.isStreaming = data.status === 'active'; // Atualizar o estado de streaming no canal
         channel.value.serviceStatus = channel.value.isStreaming ? 'On' : 'Off'; // Atualizar o status do serviço
       } else {
         // Tratamento de erro em caso de falha na resposta da API
-        indexStore.msgAlert('error', data.status || 'Erro ao obter status do stream', 4);
+        indexStore.msgAlert('error', `${data}` || 'Erro ao obter status do stream', 4);
       }
     })
     .catch((error) => {
@@ -150,12 +154,17 @@ async function startStream() {
   })
     .then(async (response) => {
       const data = await response.text();
+
+      if (!response.ok) {
+        indexStore.msgAlert('error', `${data}`, 4);
+      }
+
       if (response.ok) {
         channel.value.isStreaming = true; // Atualizar o estado de streaming no canal
         channel.value.serviceStatus = 'On'; // Atualizar o status do serviço
-        indexStore.msgAlert('success', data, 4);
+        indexStore.msgAlert('success', `${data}`, 4);
       } else {
-        indexStore.msgAlert('error', data || 'Erro ao iniciar o stream', 4);
+        indexStore.msgAlert('error', `${data}` || 'Erro ao iniciar o stream', 4);
       }
     })
     .catch((error) => {
@@ -177,12 +186,17 @@ async function stopStream() {
   })
     .then(async (response) => {
       const data = await response.text();
+
+      if (!response.ok) {
+        indexStore.msgAlert('error', `${data}`, 4);
+      }
+
       if (response.ok) {
         channel.value.isStreaming = false; // Atualizar o estado de streaming no canal
         channel.value.serviceStatus = 'Off'; // Atualizar o status do serviço
-        indexStore.msgAlert('success', data, 4);
+        indexStore.msgAlert('success', `${data}`, 4);
       } else {
-        indexStore.msgAlert('error', data || 'Erro ao parar o stream', 4);
+        indexStore.msgAlert('error', `${data}` || 'Erro ao parar o stream', 4);
       }
     })
     .catch((error) => {

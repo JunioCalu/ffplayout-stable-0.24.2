@@ -75,7 +75,7 @@ watch(() => configStore.i, (newIndex) => {
 function updateChannel(index: number) {
   if (configStore.channels[index]) {
     channel.value = configStore.channels[index] as ExtendedChannel;
-    indexStore.msgAlert('info', `Verificando status do canal: ${channel.value.name}`, 2);
+    //indexStore.msgAlert('info', `Verificando status do canal: ${channel.value.name}`, 2);
   } else {
     errorMessage.value = 'Canal inválido selecionado.';
   }
@@ -156,34 +156,35 @@ async function checkServiceStatus(channel: ExtendedChannel) {
       const data = await response.json();
 
       if (!response.ok) {
-        indexStore.msgAlert('error', `HTTP Error: ${rawData}`, 4);
+        indexStore.msgAlert('error', `${rawData}`, 4);
       }
-
-      if (data.status === 'active') {
-        channel.isOn = true;
-        channel.serviceStatus = 'On';
-        errorMessage.value = ''; // Clear error message
-        indexStore.msgAlert('success', 'Bot de live ativo', 3);
-      } else if (data.status === 'inactive') {
-        channel.isOn = false;
-        channel.serviceStatus = 'Off';
-        errorMessage.value = ''; // Clear error message
-        indexStore.msgAlert('warning', 'Bot de live inativo', 3);
-      } else {
-        console.error('Unexpected status: ', data);
-        errorMessage.value = `Unexpected status: ${JSON.stringify(data)}`;
-        channel.isOn = false; // Set isOn to false if an unexpected status is received
-        indexStore.msgAlert('error', `Status inesperado: ${data}`, 4);
-        console.error('SwitchButton resposta bruta do backend:', rawData);
-        return;
-      }
+      if (response.ok) {
+        if (data.status === 'active') {
+          channel.isOn = true;
+          channel.serviceStatus = 'On';
+          errorMessage.value = ''; // Clear error message
+          indexStore.msgAlert('success', 'Bot de live ativo', 3);
+        } else if (data.status === 'inactive') {
+          channel.isOn = false;
+          channel.serviceStatus = 'Off';
+          errorMessage.value = ''; // Clear error message
+          indexStore.msgAlert('warning', 'Bot de live inativo', 3);
+        } else {
+          console.error('Unexpected status: ', `${rawData}`);
+          errorMessage.value = `Unexpected status: ${rawData}`;
+          channel.isOn = false; // Set isOn to false if an unexpected status is received
+          indexStore.msgAlert('error', `Status inesperado: ${rawData}`, 4);
+          console.error('SwitchButton resposta bruta do backend:', `${rawData}`);
+          return;
+        }
+    }
     })
     .catch((error) => {
       console.error('Failed to check service status: ', error);
       channel.serviceStatus = 'Error';
-      errorMessage.value = `Failed to check service status: ${error.message}`;
+      errorMessage.value = `Failed to check service status: ${error}`;
       channel.isOn = false; // Set isOn to false if an error occurs
-      indexStore.msgAlert('error', `Erro ao verificar status do Bot de live: ${error.message}`, 4);
+      indexStore.msgAlert('error', `Erro ao verificar status do Bot de live: ${error}`, 4);
     });
 }
 
@@ -204,30 +205,30 @@ async function toggleService() {
     .then(async (response) => {
       const clonedResponse = response.clone();
       const rawData = await clonedResponse.text();
-      const data = await response.json();
+      //const data = await response.json();
 
       if (!response.ok) {
-        indexStore.msgAlert('error', `HTTP Error: ${rawData}`, 4);
+        indexStore.msgAlert('error', `${rawData}`, 4);
       }
 
       if (response.ok) {
         channel.value.serviceStatus = channel.value.isOn ? 'On' : 'Off';
         errorMessage.value = ''; // Clear error message
-        indexStore.msgAlert('success', `Bot de live ${action === 'start' ? 'Iniciado' : 'Parado'} com sucesso`, 4);
+        indexStore.msgAlert('success', `${rawData}`, 4);
       } else {
-        console.error(`Failed to ${action === 'start' ? 'start' : 'stop'} the service: `, data);
-        errorMessage.value = `Failed to ${action === 'start' ? 'start' : 'stop'} the service: ${JSON.stringify(data)}`;
+        console.error(`Failed to ${action === 'start' ? 'start' : 'stop'} the service: `, `${rawData}`);
+        errorMessage.value = `Failed to ${action === 'start' ? 'start' : 'stop'} the service: ${rawData}`;
         channel.value.isOn = false; // Set isOn to false if a failure occurs
-        indexStore.msgAlert('error', `Falha ao ${action === 'start' ? 'Iniciar' : 'Parar'} o Bot de live: ${JSON.stringify(data)}`, 4);
-        console.error('SwitchButton resposta bruta do backend:', rawData);
+        indexStore.msgAlert('error', `Falha ao ${action === 'start' ? 'Iniciar' : 'Parar'} o Bot de live: ${rawData}`, 4);
+        console.error('SwitchButton resposta bruta do backend:', `${rawData}`);
       }
     })
     .catch((error) => {
       console.error(`Error while ${channel.value.isOn ? 'stopping' : 'starting'} the service: `, error);
       channel.value.serviceStatus = 'Error';
-      errorMessage.value = `Error while ${channel.value.isOn ? 'Stopping' : 'Starting'} the service: ${error.message}`;
+      errorMessage.value = `Error while ${channel.value.isOn ? 'Stopping' : 'Starting'} the service: ${error}`;
       channel.value.isOn = false; // Set isOn to false if an error occurs
-      indexStore.msgAlert('error', `Erro ao ${channel.value.isOn ? 'Parar' : 'Iniciar'} o Bot de live: ${error.message}`, 4);
+      indexStore.msgAlert('error', `Erro ao ${channel.value.isOn ? 'Parar' : 'Iniciar'} o Bot de live: ${error}`, 4);
     });
 }
 </script>
