@@ -1,24 +1,27 @@
 <template>
   <div class="flex flex-col items-center min-h-screen p-4 bg-base-200 text-base-content" :dark="colorMode.value === 'dark'">
-    <!-- Título do Canal com Indicador de Status -->
-    <div class="w-full max-w-2xl p-4 bg-base-300 rounded-lg shadow-md flex items-center justify-center">
-      <div
-        class="w-4 h-4 rounded-full mr-2"
-        :class="{
-          'bg-success shadow shadow-success': channel.isStreaming,
-          'bg-danger shadow shadow-danger': !channel.isStreaming
-        }"
-      ></div>
-      <h1 class="text-2xl font-bold">
-        Canal: {{ channel.name || 'Nenhum canal selecionado' }}
-      </h1>
+    <!-- Channel Title with Status Indicator -->
+    <div class="w-full max-w-2xl p-4 bg-base-300 rounded-lg shadow-md">
+      <div class="flex items-center justify-center">
+        <div
+          class="h-[1.5em] w-[1.5em] rounded-full mr-3 transition-all duration-300"
+          :class="{
+            'bg-emerald-500 shadow-lg shadow-emerald-500/50': channel.isStreaming,
+            'bg-red-500 shadow-lg shadow-red-500/50': !channel.isStreaming
+          }"
+          :title="channel.isStreaming ? 'Online' : 'Offline'"
+        ></div>
+        <h1 class="text-2xl font-bold">
+          Canal: {{ channel.name || 'Nenhum canal selecionado' }}
+        </h1>
+      </div>
     </div>
 
-    <!-- Instruções -->
+    <!-- Instructions -->
     <div class="w-full max-w-2xl mt-4 p-4 bg-base-300 rounded-lg shadow-md">
-      <h1 class="text-[1.16rem] font-bold mb-4 text-center">
+      <h2 class="text-lg font-bold mb-4 text-center">
         Clique no botão abaixo para ativar ou desativar a detecção automática de lives
-      </h1>
+      </h2>
     </div>
 
     <!-- SwitchButton -->
@@ -26,10 +29,12 @@
       <SwitchButton />
     </div>
 
-    <!-- Descrição -->
+    <!-- Description -->
     <div class="w-full max-w-2xl mt-4 p-4 bg-base-300 rounded-lg shadow-md">
       <p class="text-base text-justify">
-        Para iniciar uma live manualmente, desative a detecção automática de lives, insira o link de uma live do Youtube no campo abaixo e clique em start para iniciar a retransmissão de TV.
+        Para iniciar uma live manualmente, desative a detecção automática de lives, 
+        insira o link de uma live do Youtube no campo abaixo e clique em start 
+        para iniciar a retransmissão de TV.
       </p>
     </div>
 
@@ -41,42 +46,33 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 
-const colorMode = useColorMode();
-const authStore = useAuth();
-const configStore = useConfig();
-
-const { i } = storeToRefs(configStore); // Índice do canal selecionado
-const channel = ref({} as ExtendedChannel); // Canal atualmente selecionado
-
-// Definir o tipo estendido para Channel
 interface ExtendedChannel extends Channel {
   isStreaming: boolean;
   serviceStatus: string;
-  liveUrl: string; // Adicionar liveUrl ao tipo estendido
+  liveUrl: string;
 }
 
-// Atualiza o canal ao montar o componente e sempre que o índice mudar
-onMounted(() => {
-  updateChannel();
-});
+const colorMode = useColorMode();
+const configStore = useConfig();
+const { i } = storeToRefs(configStore);
+const channel = ref<ExtendedChannel>({} as ExtendedChannel);
 
-watch(i, updateChannel);
-
+// Update channel when component mounts and when index changes
 function updateChannel() {
   if (configStore.channels[i.value]) {
-    channel.value = { 
+    channel.value = {
       ...configStore.channels[i.value],
     } as ExtendedChannel;
   }
 }
 
+onMounted(updateChannel);
+watch(i, updateChannel);
+
+// Set page title
 useHead({
   title: 'ffplayout | Livebot'
 });
 </script>
-
-<style scoped lang="scss">
-/* Adicione estilos personalizados aqui, se necessário */
-</style>

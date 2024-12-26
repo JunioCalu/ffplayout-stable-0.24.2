@@ -1281,7 +1281,7 @@ dependencies = [
  "sqlx",
  "static-files",
  "sysinfo",
- "thiserror 2.0.6",
+ "thiserror 2.0.7",
  "time",
  "tokio",
  "tokio-stream",
