@@ -1,4 +1,8 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import os
+import sys
 import json
 import signal
 import logging
@@ -12,6 +16,11 @@ from urllib.parse import urlparse
 import aiohttp
 from yt_dlp import YoutubeDL
 import time
+
+# Novos imports para o StreamManager (ffmpeg + streamlink):
+import shutil
+from pathlib import Path
+from dataclasses import dataclass
 
 # =============================================================================
 # CONFIGURAÇÕES GLOBAIS
@@ -34,6 +43,15 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+
+def handle_signal(sig, frame):
+    """Tratamento de sinais (SIGINT, SIGTERM) para encerramento gracioso."""
+    logging.info(f"Recebido sinal {sig}. Encerrando o programa de forma graciosa.")
+    sys.exit(0)
+
+# Registra os handlers de sinal
+signal.signal(signal.SIGINT, handle_signal)
+signal.signal(signal.SIGTERM, handle_signal)
 
 async def log_message(message: str, debug: bool = False):
     """
@@ -79,7 +97,7 @@ ydl_opts = {
     'forcejson': True,
     'logger': YoutubeDLLogger(),
     'color': False,
-    'noplaylist': True,
+    'noplaylist': True,      # Não processar playlists de forma "tradicional"
     'no_warnings': True,
     'noprogress': True,
     'verbose': False,
@@ -89,16 +107,19 @@ ydl_opts = {
 
 
 # =============================================================================
-# MONITORAMENTO DE ABAS DO YOUTUBE
+# NOVO MONITOR DE CANAIS (UMA CHAMADA POR CANAL)
 # =============================================================================
 
 class TabMonitor:
-    """Classe para monitorar abas de canais do YouTube."""
+    """
+    Monitor de canais do YouTube em uma única solicitação por canal.
+    Em vez de gerar abas (live/community/videos), faz apenas 1 chamada ao canal.
+    """
     
     def __init__(self, rate_limit: int = 5, chunk_size: int = 3):
         """
-        Inicializa o monitor de abas.
-        
+        Inicializa o monitor.
+
         Args:
             rate_limit: Número máximo de requisições simultâneas
             chunk_size: Tamanho do chunk para processamento em lote
@@ -119,11 +140,12 @@ class TabMonitor:
 
     async def monitor_tabs(self, channel_urls: List[str], debug: bool = False) -> Set[str]:
         """
-        Monitora abas de URLs de canais de forma paralela e eficiente.
-        
+        Monitora cada canal em uma única solicitação, coletando todos os vídeos
+        que o yt-dlp retornar.
+
         Args:
-            channel_urls: Lista de URLs dos canais (ex.: https://www.youtube.com/@CanalXYZ)
-            debug: Flag para ativar logs de debug
+            channel_urls: Lista de URLs de canais (ex.: https://www.youtube.com/@MeuCanal)
+            debug: Flag para logs de debug
             
         Returns:
             Set[str]: Conjunto de IDs de vídeos únicos encontrados
@@ -135,43 +157,35 @@ class TabMonitor:
             await log_message("Nenhuma URL válida fornecida", debug=debug)
             return set()
 
-        all_tabs = self._generate_tabs(valid_urls)
         all_video_ids = set()
-        
-        async with self:  # Usa o próprio objeto como context manager
-            chunks = [all_tabs[i:i + self.chunk_size] for i in range(0, len(all_tabs), self.chunk_size)]
+
+        # Usa o próprio objeto como context manager
+        async with self:
+            chunks = [valid_urls[i:i + self.chunk_size] for i in range(0, len(valid_urls), self.chunk_size)]
             for chunk_index, chunk in enumerate(chunks, start=1):
                 try:
                     await log_message(f"Processando chunk {chunk_index}/{len(chunks)}: {chunk}", debug=debug)
-                    tasks = [self._process_tab(tab, debug) for tab in chunk]
+                    tasks = [self._process_channel(url, debug) for url in chunk]
                     chunk_results = await asyncio.gather(*tasks, return_exceptions=True)
                     
                     for result in chunk_results:
                         if isinstance(result, set):
                             all_video_ids.update(result)
                         elif isinstance(result, Exception):
-                            await log_message(f"Erro ao processar aba: {result}", debug=debug)
+                            await log_message(f"Erro ao processar canal: {result}", debug=debug)
 
                     # Pequena pausa para evitar sobrecarga
                     await asyncio.sleep(0.5)
                     
                 except Exception as e:
-                    await log_message(f"Erro ao processar chunk de abas: {e}", debug=debug)
+                    await log_message(f"Erro ao processar chunk de canais: {e}", debug=debug)
                     continue
 
         await log_message(f"Total de vídeos únicos encontrados: {len(all_video_ids)}", debug=debug)
         return all_video_ids
 
     def _validate_urls(self, urls: List[str]) -> List[str]:
-        """
-        Valida e padroniza as URLs fornecidas.
-        
-        Args:
-            urls: Lista de URLs para validar
-            
-        Returns:
-            List[str]: Lista de URLs válidas
-        """
+        """Valida e padroniza as URLs fornecidas."""
         valid_urls = []
         for url in urls:
             try:
@@ -183,52 +197,38 @@ class TabMonitor:
                 pass
         return valid_urls
 
-    def _generate_tabs(self, urls: List[str]) -> List[str]:
+    async def _process_channel(self, channel_url: str, debug: bool) -> Set[str]:
         """
-        Gera diferentes “abas” para cada URL base (live, community, etc.).
+        Faz uma única requisição ao canal para extrair todas as entradas (vídeos).
         
         Args:
-            urls: Lista de URLs base
-            
-        Returns:
-            List[str]: Lista de URLs com todas as abas
-        """
-        tab_types = ["live", "community", "featured", "videos", "streams"]
-        return [f"{url}/{tab}" for url in urls for tab in tab_types]
+            channel_url: URL do canal (ex.: https://www.youtube.com/@MeuCanal)
+            debug: Logs de debug
 
-    async def _process_tab(self, tab_url: str, debug: bool) -> Set[str]:
-        """
-        Processa uma única aba com limite de requisições simultâneas.
-        
-        Args:
-            tab_url: URL da aba a ser processada (ex.: https://youtube.com/@CanalXYZ/live)
-            debug: Flag para ativar logs de debug
-            
         Returns:
-            Set[str]: IDs dos vídeos encontrados nessa aba
+            Set[str]: IDs de vídeos encontrados
         """
         async with self.rate_limit:
             try:
-                await log_message(f"Processando aba: {tab_url}", debug=debug)
+                await log_message(f"Processando canal: {channel_url}", debug=debug)
                 with YoutubeDL(ydl_opts) as ydl:
                     info = await asyncio.to_thread(
                         ydl.extract_info,
-                        tab_url,
+                        channel_url,
                         download=False,
                         process=False
                     )
-                    if not info or 'entries' not in info:
+                    if not info or "entries" not in info:
                         return set()
                     
-                    # Garante que 'entries' não é None
-                    entries = info.get('entries') or []
-                    video_ids = {entry['id'] for entry in entries if entry and 'id' in entry}
-                    
-                    await log_message(f"Encontrados {len(video_ids)} vídeos em {tab_url}", debug=debug)
+                    entries = info.get("entries") or []
+                    video_ids = {entry["id"] for entry in entries if entry and "id" in entry}
+
+                    await log_message(f"Encontrados {len(video_ids)} vídeos em {channel_url}", debug=debug)
                     return video_ids
 
             except Exception as e:
-                await log_message(f"Erro ao processar {tab_url}: {e}", debug=debug)
+                await log_message(f"Erro ao processar {channel_url}: {e}", debug=debug)
                 return set()
 
 
@@ -237,7 +237,7 @@ class TabMonitor:
 # =============================================================================
 
 class DatabaseManager:
-    """Classe para gerenciar operações do banco de dados."""
+    """Classe para gerenciar operações do banco de dados (SQLite)."""
     
     def __init__(self, channel_id: int):
         """
@@ -253,6 +253,7 @@ class DatabaseManager:
     async def setup(self) -> bool:
         """
         Configura o banco de dados e cria tabelas, se necessário.
+        Também ativa o modo WAL e ajusta 'synchronous' para NORMAL.
         
         Returns:
             bool: True se a configuração foi bem-sucedida
@@ -262,6 +263,12 @@ class DatabaseManager:
                 os.makedirs(DB_DIR)
                 
             self.conn = sqlite3.connect(self.db_file, isolation_level=None)
+
+            # Melhora robustez contra corrupção de dados
+            self.conn.execute("PRAGMA journal_mode = WAL;")
+            self.conn.execute("PRAGMA synchronous = NORMAL;")
+
+            # Cria tabelas se não existirem
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS old_video_ids (
                     video_id TEXT PRIMARY KEY
@@ -282,6 +289,7 @@ class DatabaseManager:
         """Fecha a conexão com o banco de dados."""
         if self.conn:
             self.conn.close()
+            self.conn = None
             
     async def load_old_video_ids(self) -> Set[str]:
         """
@@ -531,71 +539,186 @@ class APIManager:
 
 
 # =============================================================================
-# GESTOR DE STREAMS VIA STREAMLINK
+# NOVA IMPLEMENTAÇÃO DE STREAM MANAGER (streamlink + ffmpeg)
 # =============================================================================
 
+@dataclass
+class StreamConfig:
+    """Configuração para streaming."""
+    url: str
+    rtmp_details: str
+    hls_live_edge: int = 6
+    ringbuffer_size: str = "128M"
+    max_quality: str = "720p"
+    stream_quality: str = "best"
+
+class StreamManagerError(Exception):
+    """Exceção customizada para erros do StreamManager."""
+    pass
+
 class StreamManager:
-    """Classe para gerenciar streams do YouTube através do streamlink."""
+    """Gerenciador de streams do streamlink para ffmpeg (RTMP)."""
+    
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        self._setup_logging()
+        
+    def _setup_logging(self):
+        """Configura o logging básico."""
+        logging.basicConfig(
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            level=logging.INFO
+        )
     
     @staticmethod
-    async def start_streamlink(video_url: str, debug: bool = False, retries: int = 0) -> bool:
-        """
-        Inicia o streamlink para um vídeo.
-        
-        Args:
-            video_url: URL do vídeo
-            debug: Flag para ativar logs de debug
-            retries: Número de tentativas já realizadas
+    def _get_executable(name: str) -> Optional[Path]:
+        """Localiza um executável no sistema."""
+        path = shutil.which(name)
+        return Path(path) if path else None
+    
+    async def _create_streamlink_process(
+        self,
+        config: StreamConfig
+    ) -> asyncio.subprocess.Process:
+        """Cria e configura o processo do streamlink."""
+        streamlink_path = self._get_executable("streamlink")
+        if not streamlink_path:
+            raise StreamManagerError("Streamlink não encontrado no sistema")
             
-        Returns:
-            bool: True se o stream iniciou com sucesso
+        args = [
+            str(streamlink_path),
+            "--hls-live-edge", str(config.hls_live_edge),
+            "--ringbuffer-size", config.ringbuffer_size,
+            "-4",
+            "--stream-sorting-excludes", f">{config.max_quality}",
+            "--default-stream", config.stream_quality,
+            "--url", config.url,
+            "-o", "-"
+        ]
+        
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.DEVNULL
+            )
+            return process
+        except Exception as e:
+            raise StreamManagerError(f"Erro ao iniciar streamlink: {e}")
+
+    async def _create_ffmpeg_process(
+        self,
+        rtmp_url: str
+    ) -> asyncio.subprocess.Process:
+        """Cria e configura o processo do ffmpeg."""
+        ffmpeg_path = self._get_executable("ffmpeg")
+        if not ffmpeg_path:
+            raise StreamManagerError("FFmpeg não encontrado no sistema")
+            
+        # Ajuste: envia para rtmp://127.0.0.1{rtmp_url}
+        args = [
+            str(ffmpeg_path),
+            "-re",
+            "-hide_banner",
+            "-nostats",
+            "-v", "level+error",
+            "-i", "pipe:0",
+            "-c:v", "copy",
+            "-c:a", "copy",
+            "-f", "flv",
+            f"rtmp://127.0.0.1{rtmp_url}"
+        ]
+        
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *args,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            return process
+        except Exception as e:
+            raise StreamManagerError(f"Erro ao iniciar ffmpeg: {e}")
+
+    async def _stream_copy(
+        self,
+        source: asyncio.StreamReader,
+        destination: asyncio.StreamWriter,
+        chunk_size: int = 65536
+    ) -> None:
+        """Copia dados entre streams."""
+        try:
+            while True:
+                chunk = await source.read(chunk_size)
+                if not chunk:
+                    break
+                destination.write(chunk)
+                await destination.drain()
+        except Exception as e:
+            self.logger.error(f"Erro na cópia do stream: {e}")
+        finally:
+            destination.close()
+            await destination.wait_closed()
+
+    async def _log_stream(
+        self,
+        prefix: str,
+        stream: asyncio.StreamReader,
+        level: int = logging.DEBUG
+    ) -> None:
+        """Processa e loga a saída de um stream."""
+        while True:
+            line = await stream.readline()
+            if not line:
+                break
+            self.logger.log(level, f"{prefix}: {line.decode().strip()}")
+
+    async def start_stream(self, config: StreamConfig) -> Tuple[int, int]:
         """
-        await log_message(f"Iniciando streamlink para: {video_url}", debug=debug)
+        Inicia o streaming do conteúdo.
+        
+        Returns:
+            Tuple[int, int]: Códigos de retorno (streamlink, ffmpeg)
+        """
+        # Inicializa processos
+        streamlink_proc = await self._create_streamlink_process(config)
+        try:
+            ffmpeg_proc = await self._create_ffmpeg_process(config.rtmp_details)
+        except Exception:
+            streamlink_proc.terminate()
+            await streamlink_proc.wait()
+            raise
+
+        # Configura tasks
+        tasks = [
+            asyncio.create_task(self._stream_copy(
+                streamlink_proc.stdout, 
+                ffmpeg_proc.stdin
+            )),
+            asyncio.create_task(self._log_stream(
+                "streamlink",
+                streamlink_proc.stderr
+            )),
+            asyncio.create_task(self._log_stream(
+                "ffmpeg",
+                ffmpeg_proc.stderr
+            ))
+        ]
 
         try:
-            command = [
-                "/home/junio/livebot/venv/bin/streamlink",
-                "--hls-live-edge", "6",
-                "--ringbuffer-size", "64M",
-                "-4",
-                "--stream-sorting-excludes", ">720p",
-                "--default-stream", "best",
-                "--url", video_url,
-                "-p", "mpv",
-            ]
+            # Aguarda conclusão da cópia principal
+            await tasks[0]
+        finally:
+            # Cancela tasks de logging
+            for task in tasks[1:]:
+                task.cancel()
             
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                preexec_fn=os.setsid
-            )
-
-            # Aguarda o término do processo
-            await process.wait()
-
-            if process.returncode == 0:
-                await log_message(f"Streamlink executado com sucesso: {video_url}", debug=debug)
-                return True
-                
-            # Se houve erro e ainda há tentativas disponíveis, tenta novamente
-            if retries < MAX_RETRIES:
-                await log_message(
-                    f"Tentando novamente ({retries + 1}/{MAX_RETRIES}) para {video_url}...",
-                    debug=debug
-                )
-                return await StreamManager.start_streamlink(video_url, debug, retries + 1)
-                
-            await log_message(f"Número máximo de tentativas atingido para: {video_url}", debug=debug)
-            try:
-                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-            except ProcessLookupError:
-                await log_message(f"Processo já encerrado: {process.pid}", debug=debug)
-            return False
-
-        except Exception as e:
-            await log_message(f"Erro ao iniciar streamlink: {e}", debug=debug)
-            return False
+            # Aguarda término dos processos
+            streamlink_rc = await streamlink_proc.wait()
+            ffmpeg_rc = await ffmpeg_proc.wait()
+            
+            return streamlink_rc, ffmpeg_rc
 
 
 # =============================================================================
@@ -605,20 +728,24 @@ class StreamManager:
 class VideoQueue:
     """Classe para gerenciar a fila de vídeos a serem processados."""
     
-    def __init__(self):
+    def __init__(self, channel_name: str = "", rtmp_details: str = ""):
         self.queue = asyncio.Queue()
         self.api_manager = APIManager()
         self.processing = False
         
+        # Parâmetros adicionais para logs e config do RTMP
+        self.channel_name = channel_name
+        self.rtmp_details = rtmp_details
+
     async def add_video(self, video_url: str):
         """
-        Adiciona um vídeo à fila para ser processado (streamlink).
+        Adiciona um vídeo à fila para ser processado (streamlink+ffmpeg).
         
         Args:
             video_url: URL do vídeo
         """
         await self.queue.put(video_url)
-        await log_message(f"Vídeo adicionado à fila: {video_url}", True)
+        await log_message(f"[{self.channel_name}] Vídeo adicionado à fila: {video_url}", True)
         
         if not self.processing:
             asyncio.create_task(self.process_queue())
@@ -634,25 +761,41 @@ class VideoQueue:
                     is_ingesting = await api.get_ingest_status()
                     
                     if is_ingesting:
-                        await log_message("Sistema em ingestão, aguardando 30s...", True)
+                        await log_message(f"[{self.channel_name}] Sistema em ingestão, aguardando 30s...", True)
                         await asyncio.sleep(30)
                         continue
                     
                     # Processa o próximo vídeo
                     video_url = await self.queue.get()
-                    await log_message(f"Processando vídeo da fila: {video_url}", True)
+                    await log_message(f"[{self.channel_name}] Processando vídeo da fila: {video_url}", True)
                     
-                    success = await StreamManager.start_streamlink(video_url, True)
+                    # Configuração do stream
+                    config = StreamConfig(
+                        url=video_url,
+                        rtmp_details=self.rtmp_details,  # ex: "/live/test"
+                        hls_live_edge=6,
+                        ringbuffer_size="128M",
+                        max_quality="720p",
+                        stream_quality="best"
+                    )
                     
+                    stream_manager = StreamManager()
+                    
+                    streamlink_rc, ffmpeg_rc = await stream_manager.start_stream(config)
+                    success = (streamlink_rc == 0 and ffmpeg_rc == 0)
+
                     if success:
-                        await log_message(f"Vídeo processado com sucesso: {video_url}", True)
+                        await log_message(f"[{self.channel_name}] Vídeo processado com sucesso: {video_url}", True)
                     else:
-                        await log_message(f"Falha ao processar vídeo: {video_url}", True)
+                        await log_message(
+                            f"[{self.channel_name}] Falha ao processar vídeo (retornos: {streamlink_rc}, {ffmpeg_rc}): {video_url}",
+                            True
+                        )
                         
                     self.queue.task_done()
                     
                 except Exception as e:
-                    await log_message(f"Erro ao processar fila: {e}", True)
+                    await log_message(f"[{self.channel_name}] Erro ao processar fila: {e}", True)
                     await asyncio.sleep(30)
                     
         self.processing = False
@@ -665,12 +808,12 @@ class VideoQueue:
 class VideoProcessor:
     """Classe para processar e notificar (ou iniciar ingest) de novos vídeos."""
     
-    def __init__(self, db_manager: Optional[DatabaseManager] = None):
+    def __init__(self, db_manager: Optional['DatabaseManager'] = None, channel_name: str = "", rtmp_details: str = ""):
         """
         Se db_manager for None, trabalha apenas em memória (canais manuais).
         """
         self.db_manager = db_manager
-        self.video_queue = VideoQueue()
+        self.video_queue = VideoQueue(channel_name=channel_name, rtmp_details=rtmp_details)
         
         # Se não há DB, usaremos estruturas em memória para armazenar IDs
         self.old_video_ids_memory = set()
@@ -719,7 +862,6 @@ class VideoProcessor:
             video_url = f"https://www.youtube.com/watch?v={video_id}"
             current_timestamp = int(time.time())
 
-            # Processa de acordo com o status
             if await self._handle_video_status(
                 status,
                 video_id,
@@ -730,13 +872,11 @@ class VideoProcessor:
             ):
                 videos_to_notify[video_id] = current_timestamp
 
-        # Se há vídeos a notificar, atualiza a base
         if videos_to_notify:
             self.notified_video_ids_memory.update(videos_to_notify)
             await self.save_data()
             await log_message(f"Salvos {len(videos_to_notify)} novos vídeos notificados", debug=debug)
 
-        # Atualiza e persiste IDs antigos
         self.old_video_ids_memory.update(new_videos)
         await self.save_data()
         await log_message(f"Salvos {len(new_videos)} novos IDs como antigos", debug=debug)
@@ -826,10 +966,14 @@ class VideoProcessor:
 class MonitorService:
     """Serviço de monitoramento para canais com ID, usando banco de dados."""
     
-    def __init__(self, channel_id: int, debug: bool = False):
+    def __init__(self, channel_id: int, debug: bool = False, channel_name: str = "", rtmp_details: str = ""):
         self.channel_id = channel_id
         self.debug = debug
         self.db_manager = DatabaseManager(channel_id)
+        # Adicionamos channel_name e rtmp_details para repassar ao VideoProcessor
+        self.channel_name = channel_name
+        self.rtmp_details = rtmp_details
+        
         self.video_processor = None
         self.tab_monitor = None
         
@@ -838,10 +982,13 @@ class MonitorService:
         if not await self.db_manager.setup():
             return False
             
-        self.video_processor = VideoProcessor(self.db_manager)
+        self.video_processor = VideoProcessor(
+            self.db_manager,
+            channel_name=self.channel_name,
+            rtmp_details=self.rtmp_details
+        )
         await self.video_processor.load_data()  # Carrega old e notified
 
-        # Parâmetros default, pode ajustar se quiser
         self.tab_monitor = TabMonitor(rate_limit=5, chunk_size=3)
         return True
         
@@ -865,7 +1012,7 @@ class MonitorService:
                 new_video_ids = await self.tab_monitor.monitor_tabs(channel_urls, self.debug)
 
                 if first_iteration:
-                    # Na primeira iteração, consideramos todos os IDs como 'antigos' para não notificar nada
+                    # Na primeira iteração, consideramos todos os IDs como 'antigos'
                     self.video_processor.old_video_ids_memory.update(new_video_ids)
                     await self.video_processor.save_data()
                     first_iteration = False
@@ -876,7 +1023,6 @@ class MonitorService:
                     await asyncio.sleep(SLEEP_INTERVAL)
                     continue
 
-                # Filtra IDs realmente novos
                 old_ids = self.video_processor.old_video_ids_memory
                 new_videos = new_video_ids - old_ids
 
@@ -911,21 +1057,18 @@ class ManualMonitorService:
     Serviço de monitoramento para canais/URLs passados diretamente via linha
     de comando (--manual_channels). Não salva nada em disco.
     """
-    def __init__(self, channel_urls: List[str], debug: bool = False):
+    def __init__(self, channel_urls: List[str], debug: bool = False, channel_name: str = "", rtmp_details: str = ""):
         self.channel_urls = channel_urls
         self.debug = debug
         
-        # Usa VideoProcessor sem DB
-        self.video_processor = VideoProcessor(None)
-        # Usa TabMonitor padrão
+        # Usa VideoProcessor sem DB, mas inclui channel_name e rtmp_details
+        self.video_processor = VideoProcessor(None, channel_name=channel_name, rtmp_details=rtmp_details)
         self.tab_monitor = TabMonitor(rate_limit=5, chunk_size=3)
         
-        # Flags internas
         self.first_iteration = True
 
     async def setup(self) -> bool:
         """Carrega dados apenas em memória."""
-        # Para canais manuais, não há DB, mas inicializamos as estruturas.
         await self.video_processor.load_data()  
         return True
 
@@ -940,7 +1083,6 @@ class ManualMonitorService:
                 new_video_ids = await self.tab_monitor.monitor_tabs(self.channel_urls, self.debug)
 
                 if self.first_iteration:
-                    # Na primeira iteração, consideramos todos os IDs como 'antigos'
                     self.video_processor.old_video_ids_memory.update(new_video_ids)
                     self.first_iteration = False
                     await log_message(
@@ -1055,11 +1197,44 @@ def main():
         help="Executa diretamente um URL de live ou vídeo comum através do Streamlink (sem monitoramento)."
     )
 
+    # NOVOS PARÂMETROS
+    parser.add_argument(
+        "--channel_name",
+        type=str,
+        default="(canal-desconhecido)",
+        help="Nome do canal (apenas para logs informativos)."
+    )
+
+    parser.add_argument(
+        "--rtmp_details",
+        type=str,
+        default="/live/test",
+        help="Detalhes do RTMP, usado como sufixo em rtmp://127.0.0.1{rtmp_details}"
+    )
+
     args = parser.parse_args()
 
-    # 1) Se for apenas executar streamlink em uma URL (ex.: debugging)
+    # Log do channel_name (apenas informativo)
+    logging.info(f"Canal (apenas log): {args.channel_name}")
+
+    # 1) Se for apenas executar streamlink em uma URL
     if args.execute_url:
-        asyncio.run(StreamManager.start_streamlink(args.execute_url, args.debug))
+        # Aqui, se quisermos usar ffmpeg + streamlink, podemos montar um config e rodar:
+        loop = asyncio.get_event_loop()
+        try:
+            stream_manager = StreamManager()
+            config = StreamConfig(
+                url=args.execute_url,
+                rtmp_details=args.rtmp_details
+            )
+            streamlink_rc, ffmpeg_rc = loop.run_until_complete(stream_manager.start_stream(config))
+            success = (streamlink_rc == 0 and ffmpeg_rc == 0)
+            if success:
+                print("Stream finalizado com sucesso.")
+            else:
+                print(f"Falha no streaming (códigos de retorno: {streamlink_rc}, {ffmpeg_rc}).")
+        finally:
+            loop.close()
         return
 
     # 2) Se usuário pediu listagem de vídeos salvos no BD
@@ -1077,7 +1252,12 @@ def main():
 
     # 3) Se o usuário passou URLs manuais, iniciamos o monitor manual (sem BD)
     if args.manual_channels:
-        service = ManualMonitorService(args.manual_channels, args.debug)
+        service = ManualMonitorService(
+            args.manual_channels,
+            args.debug,
+            channel_name=args.channel_name,
+            rtmp_details=args.rtmp_details
+        )
         setup_ok = asyncio.run(service.setup())
         if setup_ok:
             asyncio.run(service.start())
@@ -1085,7 +1265,12 @@ def main():
 
     # 4) Se o usuário quer monitorar um canal específico via --monitor_channel
     if args.monitor_channel:
-        service = MonitorService(args.monitor_channel, args.debug)
+        service = MonitorService(
+            args.monitor_channel,
+            args.debug,
+            channel_name=args.channel_name,
+            rtmp_details=args.rtmp_details
+        )
         setup_ok = asyncio.run(service.setup())
         if setup_ok:
             asyncio.run(service.start())
@@ -1096,7 +1281,12 @@ def main():
         parser.error("É necessário usar --channel_id, --manual_channels ou outro parâmetro (ex.: --list).")
         return
 
-    service = MonitorService(args.channel_id, args.debug)
+    service = MonitorService(
+        args.channel_id,
+        args.debug,
+        channel_name=args.channel_name,
+        rtmp_details=args.rtmp_details
+    )
     setup_ok = asyncio.run(service.setup())
     if setup_ok:
         asyncio.run(service.start())
