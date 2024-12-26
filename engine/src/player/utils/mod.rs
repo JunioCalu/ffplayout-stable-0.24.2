@@ -114,7 +114,7 @@ pub fn prepare_output_cmd(
             && filter.output_chain.is_empty()
             && filter.video_out_link.is_empty()
         {
-            cmd.append(&mut filter.map())
+            cmd.append(&mut filter.map());
         } else if &output_params[0] != "-map" && !filter.video_out_link.is_empty() {
             cmd.append(&mut vec_strings!["-map", filter.video_out_link[0].clone()]);
 
@@ -175,7 +175,7 @@ pub fn get_data_map(manager: &ChannelManager) -> Map<String, Value> {
         .lock()
         .unwrap()
         .clone()
-        .unwrap_or(Media::new(0, "", false));
+        .unwrap_or_else(|| Media::new(0, "", false));
     let channel = manager.channel.lock().unwrap().clone();
     let config = manager.config.lock().unwrap().processing.clone();
     let ingest_is_running = manager.ingest_is_running.load(Ordering::SeqCst);
@@ -346,7 +346,7 @@ impl Media {
                                 .duration
                                 .clone()
                                 .and_then(|d| d.parse::<f64>().ok())
-                                .unwrap_or_default()
+                                .unwrap_or_default();
                         }
                     }
                     Err(e) => errors.push(e.to_string()),
@@ -367,7 +367,7 @@ impl Media {
         filter_chain: &Option<Arc<Mutex<Vec<String>>>>,
     ) {
         let mut node = self.clone();
-        self.filter = Some(filter_chains(config, &mut node, filter_chain))
+        self.filter = Some(filter_chains(config, &mut node, filter_chain));
     }
 }
 
@@ -426,11 +426,11 @@ impl MediaProbe {
                             _ => {}
                         }
                     } else {
-                        error!("No codec type found for stream: {stream:?}")
+                        error!("No codec type found for stream: {stream:?}");
                     }
                 }
 
-                Ok(MediaProbe {
+                Ok(Self {
                     format: obj.format,
                     audio_streams: a_stream,
                     video_streams: v_stream,
@@ -574,7 +574,7 @@ pub fn file_extension(filename: &Path) -> Option<&str> {
 
 /// Test if given numbers are close to each other,
 /// with a third number for setting the maximum range.
-pub fn is_close<T: num_traits::Signed + std::cmp::PartialOrd>(a: T, b: T, to: T) -> bool {
+pub fn is_close(a: f64, b: f64, to: f64) -> bool {
     (a - b).abs() < to
 }
 
@@ -594,13 +594,13 @@ pub fn get_delta(config: &PlayoutConfig, begin: &f64) -> (f64, f64) {
     let mut target_length = 86400.0;
 
     if length > 0.0 && length != target_length {
-        target_length = length
+        target_length = length;
     }
 
     if begin == &start && start == 0.0 && 86400.0 - current_time < 4.0 {
-        current_time -= 86400.0
+        current_time -= 86400.0;
     } else if start >= current_time && begin != &start {
-        current_time += 86400.0
+        current_time += 86400.0;
     }
 
     let mut current_delta = begin - current_time;
@@ -610,7 +610,7 @@ pub fn get_delta(config: &PlayoutConfig, begin: &f64) -> (f64, f64) {
         86400.0,
         config.general.stop_threshold + 2.0,
     ) {
-        current_delta = current_delta.abs() - 86400.0
+        current_delta = current_delta.abs() - 86400.0;
     }
 
     let total_delta = if current_time < start {
@@ -634,7 +634,7 @@ pub fn loop_image(config: &PlayoutConfig, node: &Media) -> Vec<String> {
 
     if Path::new(&node.audio).is_file() {
         if node.seek > 0.0 {
-            source_cmd.append(&mut vec_strings!["-ss", node.seek])
+            source_cmd.append(&mut vec_strings!["-ss", node.seek]);
         }
 
         source_cmd.append(&mut vec_strings!["-i", node.audio.clone()]);
@@ -723,7 +723,7 @@ pub fn seek_and_length(config: &PlayoutConfig, node: &mut Media) -> Vec<String> 
         node.out -= node.seek;
         node.seek = 0.0;
     } else if node.seek > 0.5 {
-        source_cmd.append(&mut vec_strings!["-ss", node.seek])
+        source_cmd.append(&mut vec_strings!["-ss", node.seek]);
     }
 
     if loop_count > 1 {
@@ -781,7 +781,7 @@ pub fn seek_and_length(config: &PlayoutConfig, node: &mut Media) -> Vec<String> 
         } else if vtt_dummy.is_file() {
             source_cmd.append(&mut vec_strings!["-i", vtt_dummy.to_string_lossy()]);
         } else {
-            error!("<b><magenta>{:?}</></b> not found!", vtt_dummy)
+            error!("<b><magenta>{:?}</></b> not found!", vtt_dummy);
         }
     }
 
@@ -918,12 +918,12 @@ pub fn stderr_reader(
             info!(target: Target::file_mail(), channel = id;
                 "<bright black>[{suffix}]</> {}",
                 line.replace("[info] ", "")
-            )
+            );
         } else if line.contains("[warning]") {
             warn!(target: Target::file_mail(), channel = id;
                 "<bright black>[{suffix}]</> {}",
                 line.replace("[warning] ", "")
-            )
+            );
         } else if line.contains("[error]") || line.contains("[fatal]") {
             error!(target: Target::file_mail(), channel = id;
                 "<bright black>[{suffix}]</> {}",
@@ -1019,13 +1019,13 @@ fn ffmpeg_filter_and_libs(config: &mut PlayoutConfig) -> Result<(), String> {
                 config
                     .general
                     .ffmpeg_filters
-                    .push(filter_line[1].to_string())
+                    .push(filter_line[1].to_string());
             }
         }
     }
 
     if let Err(e) = ff_proc.wait() {
-        error!(target: Target::file_mail(), channel = id; "{e}")
+        error!(target: Target::file_mail(), channel = id; "{e}");
     };
 
     Ok(())
@@ -1169,7 +1169,7 @@ pub fn parse_log_level_filter(s: &str) -> Result<LevelFilter, &'static str> {
 
 pub fn custom_format<T: fmt::Display>(template: &str, args: &[T]) -> String {
     let mut filled_template = String::new();
-    let mut arg_iter = args.iter().map(|x| format!("{}", x));
+    let mut arg_iter = args.iter().map(T::to_string);
     let mut template_iter = template.chars();
 
     while let Some(c) = template_iter.next() {
@@ -1195,9 +1195,8 @@ pub fn custom_format<T: fmt::Display>(template: &str, args: &[T]) -> String {
                 if nc == '}' {
                     filled_template.push('}');
                     continue;
-                } else {
-                    filled_template.push(nc);
                 }
+                filled_template.push(nc);
             }
         } else {
             filled_template.push(c);

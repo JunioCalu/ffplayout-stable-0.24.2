@@ -20,7 +20,7 @@ use log::*;
 
 use ffplayout::{
     api::routes::*,
-    db::{db_drop, db_pool, handles, models::init_globales},
+    db::{db_drop, db_pool, handles, init_globales},
     player::{
         controller::{ChannelController, ChannelManager},
         utils::{get_date, is_remote, json_validate::validate_playlist, JsonPlaylist},
@@ -44,7 +44,7 @@ include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 
 fn thread_counter() -> usize {
     let available_threads = thread::available_parallelism()
-        .map(|n| n.get())
+        .map(std::num::NonZero::get)
         .unwrap_or(1);
 
     (available_threads / 2).max(2)
@@ -54,9 +54,7 @@ fn thread_counter() -> usize {
 async fn main() -> std::io::Result<()> {
     let mail_queues = Arc::new(Mutex::new(vec![]));
 
-    let pool = db_pool()
-        .await
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    let pool = db_pool().await.map_err(io::Error::other)?;
 
     if let Err(c) = run_args(&pool).await {
         exit(c);
@@ -64,7 +62,9 @@ async fn main() -> std::io::Result<()> {
 
     set_mock_time(&ARGS.fake_time);
 
-    init_globales(&pool).await;
+    init_globales(&pool)
+        .await
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
     init_logging(mail_queues.clone())?;
 
     let channel_controllers = Arc::new(Mutex::new(ChannelController::new()));
@@ -74,7 +74,7 @@ async fn main() -> std::io::Result<()> {
             .await
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
 
-        for channel in channels.iter() {
+        for channel in &channels {
             let config = get_config(&pool, channel.id)
                 .await
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
@@ -100,10 +100,12 @@ async fn main() -> std::io::Result<()> {
         let port = ip_port
             .get(1)
             .and_then(|p| p.parse::<u16>().ok())
-            .ok_or(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "<ADRESSE>:<PORT> needed! For example: 127.0.0.1:8787",
-            ))?;
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "<ADRESSE>:<PORT> needed! For example: 127.0.0.1:8787",
+                )
+            })?;
         let controllers = web::Data::from(channel_controllers.clone());
         let auth_state = web::Data::new(SseAuthState {
             uuids: tokio::sync::Mutex::new(HashSet::new()),
@@ -135,7 +137,7 @@ async fn main() -> std::io::Result<()> {
                 .service(login)
                 .service(
                     web::scope("/api")
-                        .wrap(auth.clone())
+                        .wrap(auth)
                         .service(add_user)
                         .service(get_user)
                         .service(get_by_name)
