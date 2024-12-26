@@ -1,46 +1,82 @@
 <template>
-  <div class="flex flex-col items-center min-h-screen p-4 bg-base-200 text-base-content" :dark="colorMode.value === 'dark'">
-    <!-- Channel Title with Status Indicator -->
-    <div class="w-full max-w-2xl p-4 bg-base-300 rounded-lg shadow-md">
-      <div class="flex items-center justify-center">
-        <div
-          class="h-[1.5em] w-[1.5em] rounded-full mr-3 transition-all duration-300"
-          :class="{
-            'bg-emerald-500 shadow-lg shadow-emerald-500/50': channel.isStreaming,
-            'bg-red-500 shadow-lg shadow-red-500/50': !channel.isStreaming
-          }"
-          :title="channel.isStreaming ? 'Online' : 'Offline'"
-        ></div>
-        <h1 class="text-2xl font-bold">
-          Canal: {{ channel.name || 'Nenhum canal selecionado' }}
-        </h1>
-      </div>
-    </div>
+  <div class="min-h-screen bg-gradient-to-b from-base-200 to-base-300 text-base-content px-4 py-6 md:py-8" 
+       :dark="colorMode.value === 'dark'">
+    <div class="max-w-4xl mx-auto space-y-6">
+      <!-- Header Section -->
+      <header class="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg p-6 border border-gray-100 dark:border-gray-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center space-x-4">
+            <div
+              class="h-[1.5em] w-[1.5em] rounded-full transition-all duration-300 flex-shrink-0"
+              :class="{
+                'bg-emerald-500 shadow-lg shadow-emerald-500/50 animate-pulse': channel.isStreaming,
+                'bg-red-500 shadow-lg shadow-red-500/50': !channel.isStreaming
+              }"
+              :aria-label="channel.isStreaming ? 'Canal online' : 'Canal offline'"
+              role="status"
+            ></div>
+            <div>
+              <h1 class="text-2xl font-bold">
+                {{ channel.name || 'Nenhum canal selecionado' }}
+              </h1>
+              <p class="text-sm text-gray-600 dark:text-gray-400">
+                Status: {{ channel.isStreaming ? 'Transmitindo' : 'Offline' }}
+              </p>
+            </div>
+          </div>
+        </div>
+      </header>
 
-    <!-- Instructions -->
-    <div class="w-full max-w-2xl mt-4 p-4 bg-base-300 rounded-lg shadow-md">
-      <h2 class="text-lg font-bold mb-4 text-center">
-        Clique no botão abaixo para ativar ou desativar a detecção automática de lives
-      </h2>
-    </div>
+      <!-- Main Control Panel -->
+      <main class="grid gap-6 md:grid-cols-2">
+        <!-- Auto Detection Section -->
+        <section class="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg p-6 border border-gray-100 dark:border-gray-700">
+          <h2 class="text-lg font-semibold mb-4">
+            Detecção Automática
+          </h2>
+          <div class="space-y-4">
+            <p class="text-sm text-gray-600 dark:text-gray-400">
+              Ative para detectar automaticamente novas lives
+            </p>
+            <SwitchButton class="w-full" />
+          </div>
+        </section>
 
-    <!-- SwitchButton -->
-    <div class="w-full max-w-2xl mt-4 p-4 bg-base-300 rounded-lg shadow-md">
-      <SwitchButton />
-    </div>
+        <!-- Manual Control Section -->
+        <section class="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg p-6 border border-gray-100 dark:border-gray-700">
+          <h2 class="text-lg font-semibold mb-4">
+            Controle Manual
+          </h2>
+          <div class="space-y-4">
+            <p class="text-sm text-gray-600 dark:text-gray-400">
+              Insira o link da live para transmissão manual
+            </p>
+            <LiveStreamControl class="w-full" />
+          </div>
+        </section>
+      </main>
 
-    <!-- Description -->
-    <div class="w-full max-w-2xl mt-4 p-4 bg-base-300 rounded-lg shadow-md">
-      <p class="text-base text-justify">
-        Para iniciar uma live manualmente, desative a detecção automática de lives, 
-        insira o link de uma live do Youtube no campo abaixo e clique em start 
-        para iniciar a retransmissão de TV.
-      </p>
-    </div>
-
-    <!-- LiveStreamControl -->
-    <div class="w-full max-w-2xl mt-4 p-4 bg-base-300 rounded-lg shadow-md">
-      <LiveStreamControl class="w-full" />
+      <!-- Information Card -->
+      <section class="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg p-6 border border-gray-100 dark:border-gray-700">
+        <div class="flex items-start space-x-4">
+          <div class="p-2 bg-blue-100 dark:bg-blue-900 rounded-lg">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-blue-600 dark:text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div class="flex-1">
+            <h2 class="text-lg font-semibold mb-2">Como usar</h2>
+            <p class="text-gray-600 dark:text-gray-400 text-sm leading-relaxed">
+              Para iniciar uma live manualmente:
+              <ol class="list-decimal ml-5 mt-2 space-y-1">
+                <li>Desative a detecção automática</li>
+                <li>Cole o link da live do Youtube no campo</li>
+                <li>Clique em "Iniciar" para começar a transmissão</li>
+              </ol>
+            </p>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 </template>
@@ -59,7 +95,6 @@ const configStore = useConfig();
 const { i } = storeToRefs(configStore);
 const channel = ref<ExtendedChannel>({} as ExtendedChannel);
 
-// Update channel when component mounts and when index changes
 function updateChannel() {
   if (configStore.channels[i.value]) {
     channel.value = {
@@ -71,8 +106,13 @@ function updateChannel() {
 onMounted(updateChannel);
 watch(i, updateChannel);
 
-// Set page title
 useHead({
-  title: 'ffplayout | Livebot'
+  title: 'ffplayout | Livebot',
+  meta: [
+    {
+      name: 'description',
+      content: 'Painel de controle para gerenciamento de transmissões ao vivo'
+    }
+  ]
 });
 </script>
