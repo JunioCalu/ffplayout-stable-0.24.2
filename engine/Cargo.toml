@@ -68,6 +68,7 @@ zeromq = { version = "0.4", default-features = false, features = [
 dirs = "5.0.1"
 url = "2.5.4"
 thiserror = "2.0.6"
+once_cell = "1.20.2"
 
 [build-dependencies]
 static-files = "0.2"

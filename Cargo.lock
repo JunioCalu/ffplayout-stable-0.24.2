@@ -1262,6 +1262,7 @@ dependencies = [
  "nix",
  "notify",
  "notify-debouncer-full",
+ "once_cell",
  "paris",
  "parking_lot",
  "path-clean",

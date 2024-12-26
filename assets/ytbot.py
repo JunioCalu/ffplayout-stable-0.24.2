@@ -14,10 +14,17 @@ import aiohttp
 from yt_dlp import YoutubeDL
 import time
 
-# Constantes
+# =============================================================================
+# CONFIGURAÇÕES GLOBAIS
+# =============================================================================
+
 DB_DIR = os.path.expanduser("~/livebot/db")
 CHANNELS_FILE = os.path.expanduser("~/livebot/channels.json")
-SLEEP_INTERVAL = 5  # 5 minutos
+
+# Intervalo de checagem em segundos.
+# Se realmente deseja 5 segundos, troque para 5. Mas se a intenção é 5 minutos, use 300.
+SLEEP_INTERVAL = 300  # 5 minutos
+
 MAX_RETRIES = 3
 
 # Configuração de logging
@@ -41,6 +48,11 @@ async def log_message(message: str, debug: bool = False):
     logging.info(message)
     if debug:
         print(f"[DEBUG] {message}")
+
+
+# =============================================================================
+# MONITORAMENTO DE ABAS DO YOUTUBE
+# =============================================================================
 
 class TabMonitor:
     """Classe para monitorar abas de canais do YouTube."""
@@ -88,10 +100,13 @@ class TabMonitor:
         all_tabs = self._generate_tabs(valid_urls)
         all_video_ids = set()
         
-        async with self as monitor:
+        # Usa o próprio 'self' como context manager
+        async with self:
+            # Divide as abas em chunks para processar em lotes
             chunks = [all_tabs[i:i + self.chunk_size] for i in range(0, len(all_tabs), self.chunk_size)]
-            for chunk in chunks:
+            for chunk_index, chunk in enumerate(chunks, start=1):
                 try:
+                    await log_message(f"Processando chunk {chunk_index}/{len(chunks)}", debug=debug)
                     tasks = [self._process_tab(tab, debug) for tab in chunk]
                     chunk_results = await asyncio.gather(*tasks, return_exceptions=True)
                     
@@ -165,15 +180,20 @@ class TabMonitor:
                         download=False,
                         process=False
                     )
-                    if not info or 'entries' not in info:
+                    if not info or 'entries' not in info or not info['entries']:
                         return set()
                     
-                    video_ids = {entry['id'] for entry in info['entries']}
+                    video_ids = {entry['id'] for entry in info['entries'] if entry and 'id' in entry}
                     await log_message(f"Encontrados {len(video_ids)} vídeos em {tab_url}", debug=debug)
                     return video_ids
             except Exception as e:
                 await log_message(f"Erro ao processar {tab_url}: {e}", debug=debug)
                 return set()
+
+
+# =============================================================================
+# GERENCIAMENTO DO BANCO DE DADOS
+# =============================================================================
 
 class DatabaseManager:
     """Classe para gerenciar operações do banco de dados."""
@@ -284,7 +304,6 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"Erro ao salvar IDs notificados: {e}")
 
-
     @staticmethod
     async def get_all_channel_dbs() -> List[str]:
         """
@@ -295,7 +314,10 @@ class DatabaseManager:
         """
         if not os.path.exists(DB_DIR):
             return []
-        return [f for f in os.listdir(DB_DIR) if f.startswith("channel_") and f.endswith(".db")]
+        return [
+            f for f in os.listdir(DB_DIR)
+            if f.startswith("channel_") and f.endswith(".db")
+        ]
 
     @staticmethod
     async def get_channel_id_from_db_file(db_file: str) -> Optional[int]:
@@ -331,10 +353,7 @@ class DatabaseManager:
             cursor = self.conn.cursor()
             cursor.execute("SELECT video_id FROM old_video_ids")
             old_videos = cursor.fetchall()
-            
             await log_message(f"\nVídeos antigos ({len(old_videos)}):", debug=debug)
-            # for video in old_videos:
-            #     await log_message(f"videos: {video}", debug=debug)
             await log_message(f"videos: {old_videos}", debug=debug)
 
             # Lista vídeos notificados com timestamps
@@ -352,7 +371,11 @@ class DatabaseManager:
         except Exception as e:
             await log_message(f"Erro ao listar vídeos do canal {self.channel_id}: {e}", debug=debug)
 
-# Agora, vamos criar uma classe para gerenciar a listagem de todos os bancos
+
+# =============================================================================
+# GERENCIADOR DE LISTAGENS DE MÚLTIPLOS BANCOS
+# =============================================================================
+
 class DatabaseListManager:
     """Classe para gerenciar a listagem de múltiplos bancos de dados."""
     
@@ -391,6 +414,11 @@ class DatabaseListManager:
         if await db_manager.setup():
             await db_manager.list_saved_videos(debug)
             await db_manager.close()
+
+
+# =============================================================================
+# GERENCIAMENTO DE API
+# =============================================================================
 
 class APIManager:
     """Classe para gerenciar interações com a API de controle."""
@@ -461,6 +489,11 @@ class APIManager:
             await log_message(f"Erro ao verificar status de ingestão: {e}", True)
             return False
 
+
+# =============================================================================
+# FILA DE VÍDEOS
+# =============================================================================
+
 class VideoQueue:
     """Classe para gerenciar a fila de vídeos."""
     
@@ -518,6 +551,9 @@ class VideoQueue:
         self.processing = False
 
 
+# =============================================================================
+# PROCESSADOR DE VÍDEOS
+# =============================================================================
 
 class VideoProcessor:
     """Classe para processar vídeos do YouTube."""
@@ -562,7 +598,7 @@ class VideoProcessor:
                 continue
 
             metadata, status = result
-            published_timestamp = metadata.get("release_timestamp", 0)
+            published_timestamp = metadata.get("release_timestamp", 0) or 0
             video_url = f"https://www.youtube.com/watch?v={video_id}"
             current_timestamp = int(time.time())
 
@@ -576,7 +612,7 @@ class VideoProcessor:
                 notified_video_ids,
                 debug
             ):
-                # Se o vídeo foi processado com sucesso, adiciona ao dicionário de notificações
+                # Se o vídeo foi processado (ou seja, será notificado), acumula no dicionário
                 videos_to_notify[video_id] = current_timestamp
 
         if videos_to_notify:
@@ -634,14 +670,17 @@ class VideoProcessor:
         Returns:
             str: Status classificado do vídeo
         """
+        # Alguns campos podem não existir em certas versões do yt-dlp
         is_live_now = info.get("isLiveNow", False)
-        is_live = info.get("isLive", False)
+        is_live = info.get("is_live", False)
         is_upcoming = info.get("upcoming", False)
         was_live = info.get("was_live", False)
 
+        # Regras simples de classificação
         if is_live_now and was_live:
             return "live"
         elif is_upcoming:
+            # Se ainda não passou a data/hora de lançamento
             if info.get("release_timestamp", 0) > int(time.time()):
                 return "upcoming_scheduled"
             return "upcoming_pre_launch"
@@ -683,17 +722,23 @@ class VideoProcessor:
                 return False
             else:
                 await log_message(
-                    f"Vídeo {video_id} atrasado. Data: {datetime.fromtimestamp(published_timestamp)}",
+                    f"Vídeo {video_id} está atrasado. Data: {datetime.fromtimestamp(published_timestamp)}",
                     debug=debug
                 )
                 return True
+
         elif status in ["upcoming_pre_launch", "live", "live_VOD", "VOD"]:
             await log_message(f"Novo {status} detectado: {video_url}", debug=debug)
-            # Em vez de chamar start_streamlink diretamente, adiciona à fila
+            # Em vez de chamar start_streamlink diretamente, adicionamos à fila
             await self.video_queue.add_video(video_url)
             return True
 
         return False
+
+
+# =============================================================================
+# GESTOR DE STREAMS VIA STREAMLINK
+# =============================================================================
 
 class StreamManager:
     """Classe para gerenciar streams do YouTube."""
@@ -706,7 +751,7 @@ class StreamManager:
         Args:
             video_url: URL do vídeo
             debug: Flag para ativar logs de debug
-            retries: Número de tentativas realizadas
+            retries: Número de tentativas já realizadas
             
         Returns:
             bool: True se o stream iniciou com sucesso
@@ -732,14 +777,19 @@ class StreamManager:
                 preexec_fn=os.setsid
             )
 
+            # Aguarda o término do processo
             await process.wait()
 
+            # Se retornou 0, significa que o processo rodou sem erros
             if process.returncode == 0:
                 await log_message(f"Streamlink executado com sucesso: {video_url}", debug=debug)
                 return True
                 
             if retries < MAX_RETRIES:
-                await log_message(f"Tentando novamente ({retries + 1}/{MAX_RETRIES})...", debug=debug)
+                await log_message(
+                    f"Tentando novamente ({retries + 1}/{MAX_RETRIES}) para {video_url}...",
+                    debug=debug
+                )
                 return await StreamManager.start_streamlink(video_url, debug, retries + 1)
                 
             await log_message(f"Número máximo de tentativas atingido: {video_url}", debug=debug)
@@ -752,6 +802,11 @@ class StreamManager:
         except Exception as e:
             await log_message(f"Erro ao iniciar streamlink: {e}", debug=debug)
             return False
+
+
+# =============================================================================
+# GERENCIAMENTO DE CANAIS
+# =============================================================================
 
 class ChannelManager:
     """Classe para gerenciar canais do YouTube."""
@@ -791,6 +846,11 @@ class ChannelManager:
         except Exception as e:
             await log_message(f"Erro ao carregar canais: {e}", debug=debug)
             return {}
+
+
+# =============================================================================
+# SERVIÇO PRINCIPAL DE MONITORAMENTO
+# =============================================================================
 
 class MonitorService:
     """Serviço principal de monitoramento."""
@@ -849,10 +909,8 @@ class MonitorService:
 
         while True:
             try:
-                new_video_ids = await self.tab_monitor.monitor_tabs(
-                    channel_urls,
-                    self.debug
-                )
+                # Monitora todas as abas dos canais
+                new_video_ids = await self.tab_monitor.monitor_tabs(channel_urls, self.debug)
 
                 if first_iteration:
                     # Na primeira iteração, salvamos todos os IDs como antigos
@@ -866,14 +924,11 @@ class MonitorService:
                     await asyncio.sleep(SLEEP_INTERVAL)
                     continue
 
-                # Detecta apenas vídeos verdadeiramente novos
+                # Detecta apenas vídeos verdadeiramente novos (que não estavam em old_video_ids)
                 new_videos = new_video_ids - old_video_ids
 
                 if not new_videos:
-                    await log_message(
-                        "Nenhum novo vídeo detectado",
-                        debug=self.debug
-                    )
+                    await log_message("Nenhum novo vídeo detectado", debug=self.debug)
                 else:
                     await log_message(
                         f"Detectados {len(new_videos)} novos vídeos",
@@ -888,22 +943,20 @@ class MonitorService:
                         self.debug
                     )
 
-                await log_message(
-                    f"Aguardando {SLEEP_INTERVAL} segundos...",
-                    debug=self.debug
-                )
+                await log_message(f"Aguardando {SLEEP_INTERVAL} segundos...", debug=self.debug)
                 await asyncio.sleep(SLEEP_INTERVAL)
 
             except Exception as e:
-                await log_message(
-                    f"Erro no monitoramento: {e}",
-                    debug=self.debug
-                )
+                await log_message(f"Erro no monitoramento: {e}", debug=self.debug)
                 await asyncio.sleep(SLEEP_INTERVAL)
+
+
+# =============================================================================
+# LOGGER PERSONALIZADO PARA YOUTUBE-DL
+# =============================================================================
 
 class YoutubeDLLogger:
     """Logger personalizado para o youtube-dl."""
-    
     def debug(self, msg):
         """Log de debug."""
         logging.debug(msg)
@@ -916,7 +969,11 @@ class YoutubeDLLogger:
         """Log de erro."""
         logging.error(msg)
 
-# Configuração do youtube-dl
+
+# =============================================================================
+# CONFIGURAÇÃO DO YOUTUBE-DL (YT-DLP)
+# =============================================================================
+
 home_directory = os.path.expanduser('~')
 cookie_file_path = os.path.join(home_directory, 'livebot', 'cookies.txt')
 
@@ -936,6 +993,11 @@ ydl_opts = {
     'cookies': cookie_file_path,
 }
 
+
+# =============================================================================
+# FUNÇÃO MAIN
+# =============================================================================
+
 def main():
     """Função principal."""
     parser = argparse.ArgumentParser(
@@ -951,7 +1013,7 @@ def main():
     parser.add_argument(
         "--manual_channels",
         nargs="+",
-        help="Lista de URLs de canais para escanear manualmente"
+        help="Lista de URLs de canais para escanear manualmente (não implementado neste script)"
     )
     
     parser.add_argument(
@@ -977,20 +1039,22 @@ def main():
     parser.add_argument(
         "--execute_url",
         metavar="URL",
-        help="Executa diretamente um URL de live ou vídeo comum"
+        help="Executa diretamente uma URL de live ou vídeo comum através do Streamlink"
     )
 
     args = parser.parse_args()
 
+    # Se o usuário passar --execute_url, executamos diretamente o Streamlink
     if args.execute_url:
         asyncio.run(StreamManager.start_streamlink(args.execute_url, args.debug))
         return
 
-    # Trata o comando --list
+    # Trata o comando --list (listar vídeos salvos)
     if args.list is not None:
         if args.list == "all":
             asyncio.run(DatabaseListManager.list_all_databases(args.debug))
         else:
+            # Tenta converter o valor para int; se falhar, é formato inválido
             try:
                 channel_id = int(args.list)
                 asyncio.run(DatabaseListManager.list_specific_database(channel_id, args.debug))
@@ -998,19 +1062,25 @@ def main():
                 print(f"ID de canal inválido: {args.list}")
         return
 
+    # Se o usuário optar por monitorar um canal específico via --monitor_channel
     if args.monitor_channel:
         service = MonitorService(args.monitor_channel, args.debug)
-        asyncio.run(service.setup())
-        asyncio.run(service.start())
+        setup_ok = asyncio.run(service.setup())
+        if setup_ok:
+            asyncio.run(service.start())
         return
 
+    # Se não for listagem nem monitor_channel, mas o usuário não passou channel_id
     if args.channel_id is None:
-        parser.error("--channel-id é obrigatório quando não usando --list")
+        parser.error("--channel_id é obrigatório quando não se usa --list ou --monitor_channel")
         return
 
+    # Fluxo normal: monitorar canal passado por --channel_id
     service = MonitorService(args.channel_id, args.debug)
-    asyncio.run(service.setup())
-    asyncio.run(service.start())
+    setup_ok = asyncio.run(service.setup())
+    if setup_ok:
+        asyncio.run(service.start())
+
 
 if __name__ == "__main__":
     main()
