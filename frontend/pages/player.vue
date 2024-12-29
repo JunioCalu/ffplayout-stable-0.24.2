@@ -203,6 +203,25 @@
                         />
                     </label>
                 </div>
+                <label class="form-control w-auto mt-auto">
+                    <div class="label">
+                        <span class="label-text">{{ t('player.description') }}</span>
+                    </div>
+                    <textarea
+                        v-model="newSource.description"
+                        class="textarea textarea-sm textarea-bordered w-auto leading-tight"
+                        maxlength="500"
+                        rows="5"
+                    />
+                    <label class="cursor-pointer label">
+                        <span class="label-text">{{ t('player.enable_description') }}</span>
+                        <input
+                            type="checkbox"
+                            class="checkbox checkbox-sm"
+                            v-model="newSource.enable_description"
+                        />
+                    </label>
+                </label>
             </div>
         </GenericModal>
 
@@ -406,9 +425,6 @@ function processSource(process: boolean) {
         if (validPatternRegex.test(newSource.value.source) && !invalidPatternRegex.test(newSource.value.source)) {
             // Ajusta a URL final usando o comando
             newSource.value.source = `http://127.0.0.1:4444/cmd/${command}/`;
-        } else {
-            indexStore.msgAlert('error', `URL fornecida não corresponde ao padrão esperado ou é inválida.`, 4);
-            console.warn('URL fornecida não corresponde ao padrão esperado ou é inválida.');
         }
     }
 

@@ -66,6 +66,8 @@ export default {
         out: 'Fim',
         ad: 'Ad',
         edit: 'Editar',
+        description: 'Descrição',
+        enable_description: "Habilitar descrição",
         delete: 'Deletar',
         copy: 'Copiar playlist',
         loop: 'Repetir Clipes na Playlist',

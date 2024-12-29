@@ -7,6 +7,8 @@
         <div v-if="playlistStore.isLoading" class="w-full h-full absolute z-2 flex justify-center bg-base-100/70">
             <span class="loading loading-spinner loading-lg" />
         </div>
+
+        <!-- Tabela de playlist -->
         <table class="table table-zebra table-fixed">
             <thead class="top-0 sticky z-2">
                 <tr class="bg-base-100 rounded-tr-lg">
@@ -48,6 +50,11 @@
                     <th class="w-[85px] p-0 text-center">
                         <div class="border-b border-my-gray px-4 py-3">
                             {{ t('player.edit') }}
+                        </div>
+                    </th>
+                    <th class="w-[85px] p-0 text-center">
+                        <div class="border-b border-my-gray px-4 py-3">
+                            {{ t('player.description') }}
                         </div>
                     </th>
                     <th class="w-[85px] p-0 text-center hidden 2xs:table-cell justify-center">
@@ -112,6 +119,11 @@
                                 <i class="bi-pencil-square" />
                             </button>
                         </td>
+                        <td class="py-2 text-center hover:text-base-content/70">
+                            <button @click="openDescriptionModal(index)">
+                                <i class="bi-chat-square-text" />
+                            </button>
+                        </td>
                         <td class="py-2 text-center hidden 2xs:table-cell justify-center hover:text-base-content/70">
                             <button @click="deletePlaylistItem(index)">
                                 <i class="bi-x-circle-fill" />
@@ -121,8 +133,39 @@
                 </template>
             </Sortable>
         </table>
+      <!-- Modal de Descrição com TELEPORT -->
+      <GenericModal
+          :show="showDescriptionModal"
+          :title="t('player.description')"
+          :modal-action="saveDescription"
+          :hide-buttons="false"
+      >
+          <div class="space-y-4">
+              <label class="form-control w-full">
+                  <div class="label"></div>
+                  <textarea
+                      v-model="tempDescription"
+                      class="textarea textarea-sm textarea-bordered w-full leading-tight"
+                      maxlength="500"
+                      rows="7"
+                  />
+              </label>
+
+              <div class="form-control">
+                  <label class="cursor-pointer label">
+                      <span class="label-text">{{ t('player.enable_description') }}</span>
+                      <input
+                          type="checkbox"
+                          class="checkbox checkbox-sm"
+                          v-model="tempEnableDescription"
+                      />
+                  </label>
+              </div>
+          </div>
+      </GenericModal>
     </div>
 </template>
+
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
 
@@ -179,7 +222,6 @@ watch([playoutIsRunning, scrollToItem], () => {
     if (playoutIsRunning.value || scrollToItem.value) {
         setTimeout(() => {
             scrollTo(currentIndex.value)
-
             scrollToItem.value = false
         }, 400)
     }
@@ -189,6 +231,57 @@ defineExpose({
     classSwitcher,
     getPlaylist,
 })
+
+// ------------------------------------
+//  Revisão: description e enable_description
+// ------------------------------------
+const showDescriptionModal = ref(false)
+const editingIndex = ref(-1)
+const tempDescription = ref('')
+const tempEnableDescription = ref(false)
+
+/** 
+ * Abre o modal para edição de descrição.
+ * Verifica se o índice é válido para evitar erros.
+ */
+function openDescriptionModal(index: number) {
+    if (index < 0 || index >= playlistStore.playlist.length) {
+        console.warn(`openDescriptionModal: índice inválido (${index}).`)
+        return
+    }
+
+    editingIndex.value = index
+    const currentItem = playlistStore.playlist[index]
+    tempDescription.value = currentItem.description || ''
+    tempEnableDescription.value = currentItem.enable_description || false
+    showDescriptionModal.value = true
+}
+
+/**
+ * Função auxiliar para resetar o estado do modal.
+ */
+function resetDescriptionModal() {
+    showDescriptionModal.value = false
+    editingIndex.value = -1
+    tempDescription.value = ''
+    tempEnableDescription.value = false
+}
+
+/**
+ * Salva a descrição e o enable_description, caso solicitado.
+ */
+function saveDescription(shouldSave: boolean) {
+    if (shouldSave && editingIndex.value >= 0 && editingIndex.value < playlistStore.playlist.length) {
+        const currentItem = playlistStore.playlist[editingIndex.value]
+        currentItem.description = tempDescription.value
+        currentItem.enable_description = tempEnableDescription.value
+        processPlaylist(listDate.value, playlistStore.playlist, false)
+    }
+    resetDescriptionModal()
+}
+// ------------------------------------
+// Fim da revisão de description
+// ------------------------------------
 
 function scrollTo(index: number) {
     const child = document.getElementById(`clip-${index}`)
@@ -294,19 +387,17 @@ function addClip(event: any) {
 
 function moveItemInArray(event: any) {
     playlistStore.playlist.splice(event.newIndex, 0, playlistStore.playlist.splice(event.oldIndex, 1)[0])
-
     processPlaylist(listDate.value, playlistStore.playlist, false)
-
     removeBG(event.item)
 }
 
 function deletePlaylistItem(index: number) {
     playlistStore.playlist.splice(index, 1)
-
     processPlaylist(listDate.value, playlistStore.playlist, false)
     classSwitcher()
 }
 </script>
+
 <style>
 #sort-container.is-empty:not(:has(.sortable-ghost)):after {
     content: '\f1bc';
@@ -333,9 +424,7 @@ function deletePlaylistItem(index: number) {
     display: none !important;
 }
 
-/*
-    format dragging element
-*/
+/* Format dragging element */
 #playlist-container .sortable-ghost {
     background-color: #701a754b !important;
     min-height: 37px !important;

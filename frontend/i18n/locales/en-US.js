@@ -66,6 +66,8 @@ export default {
         out: 'Out',
         ad: 'Ad',
         edit: 'Edit',
+        description: 'Description',
+        enable_description: "Enable description",
         delete: 'Delete',
         copy: 'Copy Playlist',
         loop: 'Loop Clips in Playlist',

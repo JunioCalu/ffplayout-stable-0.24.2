@@ -43,7 +43,6 @@
 </template>
 
 <script setup lang="ts">
-import log from 'video.js/dist/types/utils/log';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 const authStore = useAuth();
@@ -51,91 +50,112 @@ const indexStore = useIndex();
 const colorMode = useColorMode();
 const configStore = useConfig();
 
-const { i } = storeToRefs(configStore); // Obter o índice do canal atualmente selecionado
-const channel = ref({} as ExtendedChannel); // Usar o tipo estendido
+const { i } = storeToRefs(configStore);
+const channel = ref({} as ExtendedChannel);
+const streamUpdateTimer = ref<ReturnType<typeof setTimeout> | null>(null);
+const isStreamActive = ref(false);
 
 const contentType = { 'content-type': 'application/json;charset=UTF-8' };
-const streamUpdateTimer = ref();
 
-// Definir o tipo estendido para Channel
 interface ExtendedChannel extends Channel {
   isStreaming: boolean;
   serviceStatus: string;
-  liveUrl: string; // Adicionar liveUrl ao tipo estendido
+  liveUrl: string;
 }
 
 onMounted(() => {
   updateChannel();
+  // Iniciar verificação de status apenas uma vez na montagem
   streamStatus();
 });
 
-watch(i, updateChannel); // Atualizar o canal quando o índice mudar
+watch(i, updateChannel);
 
 onBeforeUnmount(() => {
+  stopStatusCheck();
+});
+
+function stopStatusCheck() {
   if (streamUpdateTimer.value) {
     clearTimeout(streamUpdateTimer.value);
+    streamUpdateTimer.value = null;
   }
-});
+}
 
 function updateChannel() {
   if (configStore.channels[i.value]) {
     channel.value = { 
       ...configStore.channels[i.value], 
-      liveUrl: getLiveUrlFromLocalStorage(configStore.channels[i.value].id) // Recuperar liveUrl do localStorage
-    } as ExtendedChannel; // Atualizar o canal ativo
+      liveUrl: getLiveUrlFromLocalStorage(configStore.channels[i.value].id) 
+    } as ExtendedChannel;
   }
 }
 
-// Função para salvar liveUrl no localStorage
 function saveLiveUrlToLocalStorage() {
   if (channel.value.id) {
     localStorage.setItem(`liveUrl_${channel.value.id}`, channel.value.liveUrl);
   }
 }
 
-// Função para recuperar liveUrl do localStorage
 function getLiveUrlFromLocalStorage(channelId: number): string {
   return localStorage.getItem(`liveUrl_${channelId}`) || '';
 }
 
 async function streamStatus() {
-  async function updateStreamStatus(resolve: any) {
-    await getStreamStatus()
-      .then(() => {
-        streamUpdateTimer.value = setTimeout(() => updateStreamStatus(resolve), 1000); // Timer de 1 segundo
-      });
+  if (streamUpdateTimer.value) return; // Evita múltiplas instâncias do loop
+
+  async function updateStreamStatus() {
+    if (!isStreamActive.value && !channel.value.isStreaming) {
+      stopStatusCheck();
+      return;
+    }
+
+    await getStreamStatus();
+    streamUpdateTimer.value = setTimeout(updateStreamStatus, 1000);
   }
 
-  // Chamada inicial para obter o status e continuar as chamadas subsequentes
-  return new Promise((resolve) => updateStreamStatus(resolve));
+  await updateStreamStatus();
 }
 
 async function getStreamStatus() {
   if (!channel.value.id) return;
 
-  return fetch(`/api/livestream/ffmpeg/status/${channel.value.id}`, {
-    method: 'GET',
-    headers: { ...contentType, ...authStore.authHeader },
-  })
-    .then(async (response) => {
-      const clonedResponse = response.clone();
-      const rawData = await clonedResponse.text();
-      console.log("getStreamStatus: ", rawData);
-      const data = await response.json();
-      if (response.ok) {
-        channel.value.isStreaming = data.status === 'active'; // Atualizar o estado de streaming no canal
-        channel.value.serviceStatus = channel.value.isStreaming ? 'On' : 'Off'; // Atualizar o status do serviço
-      } else {
-        // Tratamento de erro em caso de falha na resposta da API
-        indexStore.msgAlert('error', `${data}` || 'Erro ao obter status do stream', 4);
-      }
-    })
-    .catch((error) => {
-      console.error('Error getting stream status:', error);
-      channel.value.isStreaming = false; // Atualizar o estado de streaming no canal
-      channel.value.serviceStatus = 'Off'; // Atualizar o status do serviço
-      indexStore.msgAlert('error', 'Erro ao obter status do stream', 4);
+  try {
+    const response = await fetch(`/api/livestream/ffmpeg/status/${channel.value.id}`, {
+      method: 'GET',
+      headers: { ...contentType, ...authStore.authHeader },
     });
+
+    const clonedResponse = response.clone();
+    const rawData = await clonedResponse.text();
+    console.log("getStreamStatus: ", rawData);
+
+    if (!response.ok) {
+      throw new Error(rawData);
+    }
+
+    const data = await response.json();
+    const wasStreaming = channel.value.isStreaming;
+    const newStreamingState = data.status === 'active';
+    
+    channel.value.isStreaming = newStreamingState;
+    channel.value.serviceStatus = newStreamingState ? 'On' : 'Off';
+    isStreamActive.value = newStreamingState;
+
+    // Se o stream estava ativo e agora está inativo
+    if (wasStreaming && !newStreamingState) {
+      indexStore.msgAlert('warning', 'Stream Encerrado', 4);
+      stopStatusCheck();
+    }
+
+  } catch (error) {
+    console.error('Error getting stream status:', error);
+    channel.value.isStreaming = false;
+    channel.value.serviceStatus = 'Off';
+    isStreamActive.value = false;
+    indexStore.msgAlert('error', 'Erro ao obter status do stream', 4);
+    stopStatusCheck();
+  }
 }
 
 async function startStream() {
@@ -144,33 +164,34 @@ async function startStream() {
     return;
   }
 
-  return fetch(`/api/livestream/control/${channel.value.id}`, {
-    method: 'POST',
-    headers: { ...contentType, ...authStore.authHeader },
-    body: JSON.stringify({
-      action: 'start',
-      url: channel.value.liveUrl, // Usar a URL do canal selecionado
-    }),
-  })
-    .then(async (response) => {
-      const data = await response.text();
-
-      if (!response.ok) {
-        indexStore.msgAlert('error', `${data}`, 4);
-      }
-
-      if (response.ok) {
-        channel.value.isStreaming = true; // Atualizar o estado de streaming no canal
-        channel.value.serviceStatus = 'On'; // Atualizar o status do serviço
-        indexStore.msgAlert('success', `${data}`, 4);
-      } else {
-        indexStore.msgAlert('error', `${data}` || 'Erro ao iniciar o stream', 4);
-      }
-    })
-    .catch((error) => {
-      console.error('Error starting stream:', error);
-      indexStore.msgAlert('error', `Erro ao iniciar o stream: ${error}`, 4);
+  try {
+    const response = await fetch(`/api/livestream/control/${channel.value.id}`, {
+      method: 'POST',
+      headers: { ...contentType, ...authStore.authHeader },
+      body: JSON.stringify({
+        action: 'start',
+        url: channel.value.liveUrl,
+      }),
     });
+
+    const data = await response.text();
+
+    if (!response.ok) {
+      throw new Error(data);
+    }
+
+    channel.value.isStreaming = true;
+    channel.value.serviceStatus = 'On';
+    isStreamActive.value = true;
+    indexStore.msgAlert('success', data, 4);
+    
+    // Reiniciar verificação de status após iniciar stream
+    streamStatus();
+
+  } catch (error) {
+    console.error('Error starting stream:', error);
+    indexStore.msgAlert('error', `Erro ao iniciar o stream: ${error}`, 4);
+  }
 }
 
 async function stopStream() {
@@ -179,29 +200,29 @@ async function stopStream() {
     return;
   }
 
-  return fetch(`/api/livestream/control/${channel.value.id}`, {
-    method: 'POST',
-    headers: { ...contentType, ...authStore.authHeader },
-    body: JSON.stringify({ action: 'stop' }),
-  })
-    .then(async (response) => {
-      const data = await response.text();
-
-      if (!response.ok) {
-        indexStore.msgAlert('error', `${data}`, 4);
-      }
-
-      if (response.ok) {
-        channel.value.isStreaming = false; // Atualizar o estado de streaming no canal
-        channel.value.serviceStatus = 'Off'; // Atualizar o status do serviço
-        indexStore.msgAlert('success', `${data}`, 4);
-      } else {
-        indexStore.msgAlert('error', `${data}` || 'Erro ao parar o stream', 4);
-      }
-    })
-    .catch((error) => {
-      console.error('Error stopping stream:', error);
-      indexStore.msgAlert('error', `Erro ao parar o stream: ${error}`, 4);
+  try {
+    const response = await fetch(`/api/livestream/control/${channel.value.id}`, {
+      method: 'POST',
+      headers: { ...contentType, ...authStore.authHeader },
+      body: JSON.stringify({ action: 'stop' }),
     });
+
+    const data = await response.text();
+
+    if (!response.ok) {
+      throw new Error(data);
+    }
+
+    channel.value.isStreaming = false;
+    channel.value.serviceStatus = 'Off';
+    isStreamActive.value = false;
+    indexStore.msgAlert('success', data, 4);
+    indexStore.msgAlert('warning', 'Stream Encerrado', 4);
+    stopStatusCheck();
+
+  } catch (error) {
+    console.error('Error stopping stream:', error);
+    indexStore.msgAlert('error', `Erro ao parar o stream: ${error}`, 4);
+  }
 }
 </script>
