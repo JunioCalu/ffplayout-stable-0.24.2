@@ -2391,8 +2391,8 @@ pub mod livestream {
     
                     match (streamlink_result, ffmpeg_result) {
                         (Ok(()), Ok(())) => {
-                            info!("Stream parado para canal {}", channel_name);
-                            HttpResponse::Ok().json(format!("Stream parado para canal {}", channel_name))
+                            info!("Stream Encerrado para o canal {}", channel_name);
+                            HttpResponse::Ok().json(format!("Stream Encerrado para o canal {}", channel_name))
                         }
                         (Err(e1), Err(e2)) => {
                             error!(

@@ -18,7 +18,7 @@
       <button
         class="btn"
         :class="{
-          'bg-green-500 text-white shadow-lg hover:bg-green-400': channel.isStreaming,
+          'bg-green-500 text-white shadow-lg hover:bg-green-600': channel.isStreaming,
           'bg-green-700 text-white hover:bg-green-600': !channel.isStreaming,
           'opacity-50': isLoading,
         }"
@@ -30,7 +30,7 @@
       <button
         class="btn"
         :class="{
-          'bg-red-500 text-white shadow-lg hover:bg-red-400': channel.isStreaming,
+          'bg-red-500 text-white shadow-lg hover:bg-red-600': channel.isStreaming,
           'bg-gray-600 text-white hover:bg-gray-500': !channel.isStreaming,
           'opacity-50': isLoading,
         }"
@@ -40,7 +40,7 @@
       </button>
     </div>
   </div>
-  <!-- Exemplo de exibição de mensagem de erro -->
+  <!-- mensagem de erro -->
   <p v-if="errorMessage" class="text-red-500 mt-2">{{ errorMessage }}</p>
 </template>
 
@@ -194,7 +194,8 @@ function updateStreamStatus() {
 
       // Se ficar inativo, exibe aviso
       if (!newStreamingState && channel.value.isStreaming) {
-        indexStore.msgAlert("warning", "Stream Encerrado", 4);
+        indexStore.msgAlert(
+          "warning", `Stream Encerrado para o canal ${channel.value.name}`, 4);
       }
 
       channel.value.isStreaming = newStreamingState;
@@ -273,7 +274,7 @@ function stopStream() {
     .then((responseMessage) => {
       checkStreamStatus();
       indexStore.msgAlert("success", responseMessage, 4);
-      indexStore.msgAlert("warning", "Stream Encerrado", 4);
+      indexStore.msgAlert("warning", `Stream Encerrado para o canal ${channel.value.name}`, 4);
     })
     .catch((error) => {
       console.error("Error stopping stream:", error);
