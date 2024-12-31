@@ -41,7 +41,7 @@
     </div>
   </div>
   <!-- Exemplo de exibição de mensagem de erro -->
-  <p v-if="errorMessage" class="text-red-500 text-sm mt-2">{{ errorMessage }}</p>
+  <p v-if="errorMessage" class="text-red-500 mt-2">{{ errorMessage }}</p>
 </template>
 
 <script setup lang="ts">
