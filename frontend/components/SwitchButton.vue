@@ -81,6 +81,26 @@ function updateChannel(index: number) {
   }
 }
 
+enum AlertType {
+  Success = 'success',
+  Warning = 'warning',
+  Error = 'error',
+  // Outros tipos de alerta, se necessário
+}
+
+function getAlertType(rawData: string): AlertType {
+  const lowerRawData = rawData.toLowerCase(); // Para comparação case-insensitive
+
+  if (lowerRawData.includes('iniciado')) {
+    return AlertType.Success;
+  } else if (lowerRawData.includes('interrompido')) {
+    return AlertType.Warning;
+  } else {
+    // Define um tipo padrão ou lance um erro
+    return AlertType.Error; // ou outro valor padrão
+  }
+}
+
 // Handle mouse down to distinguish between keyboard and mouse focus
 const onMouseDown = () => {
   channel.value.focusByTab = false; // Set flag to false on mouse down
@@ -163,12 +183,12 @@ async function checkServiceStatus(channel: ExtendedChannel) {
           channel.isOn = true;
           channel.serviceStatus = 'On';
           errorMessage.value = ''; // Clear error message
-          indexStore.msgAlert('success', 'Bot de live ativo', 3);
+          indexStore.msgAlert('success', `Bot de live ativo para o canal ${channel.name}`, 3);
         } else if (data.status === 'inactive') {
           channel.isOn = false;
           channel.serviceStatus = 'Off';
           errorMessage.value = ''; // Clear error message
-          indexStore.msgAlert('warning', 'Bot de live inativo', 3);
+          indexStore.msgAlert('warning', `Bot de live inativo para o canal ${channel.name}`, 3);
         } else {
           console.error('Unexpected status: ', `${rawData}`);
           errorMessage.value = `Unexpected status: ${rawData}`;
@@ -184,7 +204,7 @@ async function checkServiceStatus(channel: ExtendedChannel) {
       channel.serviceStatus = 'Error';
       errorMessage.value = `Failed to check service status: ${error}`;
       channel.isOn = false; // Set isOn to false if an error occurs
-      indexStore.msgAlert('error', `Erro ao verificar status do Bot de live: ${error}`, 4);
+      indexStore.msgAlert('error', `Erro ao verificar status do Bot de live para o canal ${channel.name}: ${error}`, 4);
     });
 }
 
@@ -213,13 +233,14 @@ async function toggleService() {
 
       if (response.ok) {
         channel.value.serviceStatus = channel.value.isOn ? 'On' : 'Off';
+        const alertType = getAlertType(rawData);
         errorMessage.value = ''; // Clear error message
-        indexStore.msgAlert('success', `${rawData}`, 4);
+        indexStore.msgAlert(alertType, `${rawData}`, 4);
       } else {
         console.error(`Failed to ${action === 'start' ? 'start' : 'stop'} the service: `, `${rawData}`);
         errorMessage.value = `Failed to ${action === 'start' ? 'start' : 'stop'} the service: ${rawData}`;
         channel.value.isOn = false; // Set isOn to false if a failure occurs
-        indexStore.msgAlert('error', `Falha ao ${action === 'start' ? 'Iniciar' : 'Parar'} o Bot de live: ${rawData}`, 4);
+        indexStore.msgAlert('error', `Falha ao ${action === 'start' ? 'Iniciar' : 'Parar'} o Bot de live para o canal ${channel.value.name}: ${rawData}`, 4);
         console.error('SwitchButton resposta bruta do backend:', `${rawData}`);
       }
     })
@@ -228,7 +249,7 @@ async function toggleService() {
       channel.value.serviceStatus = 'Error';
       errorMessage.value = `Error while ${channel.value.isOn ? 'Stopping' : 'Starting'} the service: ${error}`;
       channel.value.isOn = false; // Set isOn to false if an error occurs
-      indexStore.msgAlert('error', `Erro ao ${channel.value.isOn ? 'Parar' : 'Iniciar'} o Bot de live: ${error}`, 4);
+      indexStore.msgAlert('error', `Erro ao ${channel.value.isOn ? 'Parar' : 'Iniciar'} o Bot de live para o canal ${channel.value.name}: ${error}`, 4);
     });
 }
 </script>

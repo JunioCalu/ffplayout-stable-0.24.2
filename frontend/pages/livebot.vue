@@ -14,24 +14,23 @@
               class="h-[1.5em] w-[1.5em] rounded-full transition-all duration-300 flex-shrink-0"
               :class="{
                 'bg-emerald-500 shadow-lg shadow-emerald-500/50 animate-pulse':
-                  channel.isStreaming,
-                'bg-red-500 shadow-lg shadow-red-500/50': !channel.isStreaming
+                  liveStreamStore.channel.isStreaming,
+                'bg-red-500 shadow-lg shadow-red-500/50': !liveStreamStore.channel.isStreaming
               }"
-              :aria-label="channel.isStreaming ? 'Canal online' : 'Canal offline'"
+              :aria-label="liveStreamStore.channel.isStreaming ? 'Canal online' : 'Canal offline'"
               role="status"
             ></div>
             <div>
               <h1 class="text-2xl font-bold">
-                {{ channel.name || 'Nenhum canal selecionado' }}
+                {{ liveStreamStore.channel.name || 'Nenhum canal selecionado' }}
               </h1>
               <p class="text-sm text-gray-600 dark:text-gray-400">
-                Status: {{ channel.isStreaming ? 'Transmitindo' : 'Offline' }}
+                Status: {{ liveStreamStore.channel.isStreaming ? 'Transmitindo' : 'Offline' }}
               </p>
             </div>
           </div>
         </div>
       </header>
-
       <!-- Main Control Panel -->
       <main class="grid gap-6 md:grid-cols-2">
         <!-- Auto Detection Section -->
@@ -43,7 +42,7 @@
             <p class="text-sm text-gray-600 dark:text-gray-400">
               Ative para detectar automaticamente novas lives
             </p>
-            <SwitchButton/>
+            <SwitchButton />
           </div>
         </section>
 
@@ -56,7 +55,7 @@
             <p class="text-sm text-gray-600 dark:text-gray-400">
               Insira o link da live para transmissão manual
             </p>
-            <LiveStreamControl/>
+            <LiveStreamControl />
           </div>
         </section>
       </main>
@@ -102,24 +101,18 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
-
-interface ExtendedChannel extends Channel {
-  isStreaming: boolean;
-  serviceStatus: string;
-  liveUrl: string;
-}
+import { onMounted, watch } from 'vue';
 
 const colorMode = useColorMode();
 const configStore = useConfig();
+const liveStreamStore = useLiveStreamStore();
 const { i } = storeToRefs(configStore);
-const channel = ref<ExtendedChannel>({} as ExtendedChannel);
 
 function updateChannel() {
   if (configStore.channels[i.value]) {
-    channel.value = {
-      ...configStore.channels[i.value],
-    } as ExtendedChannel;
+    liveStreamStore.updateChannel({
+      ...configStore.channels[i.value]
+    });
   }
 }
 

@@ -4,7 +4,7 @@
     <div class="flex-1 w-full">
       <input
         id="liveUrl"
-        v-model="channel.liveUrl"
+        v-model="liveStreamStore.channel.liveUrl"
         type="text"
         placeholder="Insira o link do YouTube"
         class="input input-bordered w-full focus:outline-white focus:outline-2"
@@ -18,8 +18,8 @@
       <button
         class="btn"
         :class="{
-          'bg-green-500 text-white shadow-lg hover:bg-green-600': channel.isStreaming,
-          'bg-green-700 text-white hover:bg-green-600': !channel.isStreaming,
+          'bg-green-500 text-white shadow-lg hover:bg-green-600': liveStreamStore.channel.isStreaming,
+          'bg-green-700 text-white hover:bg-green-600': !liveStreamStore.channel.isStreaming,
           'opacity-50': isLoading,
         }"
         @click="startStream"
@@ -30,8 +30,8 @@
       <button
         class="btn"
         :class="{
-          'bg-red-500 text-white shadow-lg hover:bg-red-600': channel.isStreaming,
-          'bg-gray-600 text-white hover:bg-gray-500': !channel.isStreaming,
+          'bg-red-500 text-white shadow-lg hover:bg-red-600': liveStreamStore.channel.isStreaming,
+          'bg-gray-600 text-white hover:bg-gray-500': !liveStreamStore.channel.isStreaming,
           'opacity-50': isLoading,
         }"
         @click="stopStream"
@@ -46,38 +46,15 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount } from "vue";
-
-// Tipos
-interface Channel {
-  id: number;
-  name: string;
-  // Adicione outras propriedades do canal conforme necessário
-}
-
-interface ExtendedChannel extends Channel {
-  isStreaming: boolean;
-  liveUrl: string;
-}
-
-// Estrutura de resposta para o status do stream
-interface StreamResponse {
-  status: string;
-}
+import { useLiveStreamStore } from '@/stores/liveStream';
 
 // Stores
 const authStore = useAuth();
 const indexStore = useIndex();
 const configStore = useConfig();
+const liveStreamStore = useLiveStreamStore();
 const { i } = storeToRefs(configStore);
 const contentType = { "content-type": "application/json;charset=UTF-8" };
-
-// Estado reativo principal do canal
-const channel = ref<ExtendedChannel>({
-  id: 0,
-  name: "",
-  isStreaming: false,
-  liveUrl: "",
-} as ExtendedChannel);
 
 // Outras refs reativas
 const isLoading = ref(false);
@@ -96,11 +73,7 @@ const storage = {
     localStorage.setItem(`liveUrl_${channelId}`, url),
 };
 
-// -----------------------------------------------------------------------------
 // Funções de requisição usando .then(async), .catch(), .finally()
-// -----------------------------------------------------------------------------
-
-// Obtém status do stream
 function getStreamStatus(channelId: number) {
   return fetch(`/api/livestream/ffmpeg/status/${channelId}`, {
     method: "GET",
@@ -114,7 +87,7 @@ function getStreamStatus(channelId: number) {
         throw new Error(rawData);
       }
 
-      const data = (await response.json()) as StreamResponse;
+      const data = (await response.json()) as { status: string };
       return data;
     })
     .catch((error) => {
@@ -123,7 +96,6 @@ function getStreamStatus(channelId: number) {
     });
 }
 
-// Controla o stream (iniciar ou parar)
 function controlStream(channelId: number, action: "start" | "stop", url?: string) {
   return fetch(`/api/livestream/control/${channelId}`, {
     method: "POST",
@@ -138,7 +110,7 @@ function controlStream(channelId: number, action: "start" | "stop", url?: string
         throw new Error(rawData);
       }
 
-      return rawData; // Retornamos a mensagem de sucesso
+      return rawData;
     })
     .catch((error) => {
       console.error(`Error while ${action}ing the stream:`, error);
@@ -146,28 +118,21 @@ function controlStream(channelId: number, action: "start" | "stop", url?: string
     });
 }
 
-// -----------------------------------------------------------------------------
 // Funções de gerenciamento do status do stream
-// -----------------------------------------------------------------------------
-
-// Checa o status atual do stream (chamada pontual)
 function checkStreamStatus() {
-  if (!channel.value.id) return;
+  if (!liveStreamStore.channel.id) return;
 
   isLoading.value = true;
   errorMessage.value = "";
 
-  getStreamStatus(channel.value.id)
+  getStreamStatus(liveStreamStore.channel.id)
     .then((data) => {
       const newStreamingState = data.status === "active";
-      channel.value.isStreaming = newStreamingState;
+      liveStreamStore.setStreamingStatus(newStreamingState);
 
-      // Se estiver ativo, iniciamos o loop de checagem periódica
       if (newStreamingState && !streamUpdateTimer.value) {
         startStatusCheck();
-      }
-      // Caso contrário, interrompemos
-      else if (!newStreamingState) {
+      } else if (!newStreamingState) {
         stopStatusCheck();
       }
     })
@@ -176,7 +141,7 @@ function checkStreamStatus() {
       errorMessage.value = `Erro ao verificar status do stream: ${
         error.message || error
       }`;
-      channel.value.isStreaming = false;
+      liveStreamStore.setStreamingStatus(false);
       stopStatusCheck();
     })
     .finally(() => {
@@ -184,24 +149,24 @@ function checkStreamStatus() {
     });
 }
 
-// Atualiza o status do stream em loop, usando setTimeout
 function updateStreamStatus() {
-  if (!channel.value.id || !isStreamActive.value) return;
+  if (!liveStreamStore.channel.id || !isStreamActive.value) return;
 
-  getStreamStatus(channel.value.id)
+  getStreamStatus(liveStreamStore.channel.id)
     .then((data) => {
       const newStreamingState = data.status === "active";
 
-      // Se ficar inativo, exibe aviso
-      if (!newStreamingState && channel.value.isStreaming) {
+      if (!newStreamingState && liveStreamStore.channel.isStreaming) {
         indexStore.msgAlert(
-          "warning", `Stream Encerrado para o canal ${channel.value.name}`, 4);
+          "warning",
+          `Stream Encerrado para o canal ${liveStreamStore.channel.name}`,
+          4
+        );
       }
 
-      channel.value.isStreaming = newStreamingState;
+      liveStreamStore.setStreamingStatus(newStreamingState);
 
       if (newStreamingState) {
-        // Reagendamos nova checagem se ainda estiver ativo
         streamUpdateTimer.value = setTimeout(updateStreamStatus, STREAM_CHECK_INTERVAL);
       } else {
         stopStatusCheck();
@@ -212,19 +177,17 @@ function updateStreamStatus() {
       errorMessage.value = `Erro ao atualizar status do stream: ${
         error.message || error
       }`;
-      channel.value.isStreaming = false;
+      liveStreamStore.setStreamingStatus(false);
       stopStatusCheck();
     });
 }
 
-// Inicia o loop de checagem de status com setTimeout
 function startStatusCheck() {
   if (streamUpdateTimer.value) return;
   isStreamActive.value = true;
   updateStreamStatus();
 }
 
-// Para o loop de checagem de status
 function stopStatusCheck() {
   if (streamUpdateTimer.value) {
     clearTimeout(streamUpdateTimer.value);
@@ -233,12 +196,9 @@ function stopStatusCheck() {
   isStreamActive.value = false;
 }
 
-// -----------------------------------------------------------------------------
-// Funções de controle do stream (iniciar/parar) chamadas pelos botões
-// -----------------------------------------------------------------------------
-
+// Funções de controle do stream
 function startStream() {
-  if (!channel.value.id) {
+  if (!liveStreamStore.channel.id) {
     indexStore.msgAlert("error", "Canal não encontrado ou URL não fornecida", 3);
     return;
   }
@@ -246,7 +206,7 @@ function startStream() {
   isLoading.value = true;
   errorMessage.value = "";
 
-  controlStream(channel.value.id, "start", channel.value.liveUrl)
+  controlStream(liveStreamStore.channel.id, "start", liveStreamStore.channel.liveUrl)
     .then((responseMessage) => {
       checkStreamStatus();
       indexStore.msgAlert("success", responseMessage, 4);
@@ -262,7 +222,7 @@ function startStream() {
 }
 
 function stopStream() {
-  if (!channel.value.id) {
+  if (!liveStreamStore.channel.id) {
     indexStore.msgAlert("error", "Canal não encontrado", 3);
     return;
   }
@@ -270,11 +230,15 @@ function stopStream() {
   isLoading.value = true;
   errorMessage.value = "";
 
-  controlStream(channel.value.id, "stop")
+  controlStream(liveStreamStore.channel.id, "stop")
     .then((responseMessage) => {
       checkStreamStatus();
       indexStore.msgAlert("success", responseMessage, 4);
-      indexStore.msgAlert("warning", `Stream Encerrado para o canal ${channel.value.name}`, 4);
+      indexStore.msgAlert(
+        "warning",
+        `Stream Encerrado para o canal ${liveStreamStore.channel.name}`,
+        4
+      );
     })
     .catch((error) => {
       console.error("Error stopping stream:", error);
@@ -286,34 +250,30 @@ function stopStream() {
     });
 }
 
-// -----------------------------------------------------------------------------
-// Funções auxiliares de canal
-// -----------------------------------------------------------------------------
-
+// Funções auxiliares
 function updateChannel() {
   if (configStore.channels[i.value]) {
     const channelId = configStore.channels[i.value].id;
-    channel.value = {
+    liveStreamStore.updateChannel({
       ...configStore.channels[i.value],
       liveUrl: storage.getLiveUrl(channelId),
       isStreaming: false,
-    } as ExtendedChannel;
+    });
 
-    // Checa o status inicial do stream
     checkStreamStatus();
   }
 }
 
 function saveLiveUrlToLocalStorage() {
-  if (channel.value.id) {
-    storage.setLiveUrl(channel.value.id, channel.value.liveUrl);
+  if (liveStreamStore.channel.id) {
+    storage.setLiveUrl(
+      liveStreamStore.channel.id,
+      liveStreamStore.channel.liveUrl
+    );
   }
 }
 
-// -----------------------------------------------------------------------------
-// Ciclo de vida do componente
-// -----------------------------------------------------------------------------
-
+// Ciclo de vida
 onMounted(() => {
   updateChannel();
 });
@@ -322,10 +282,5 @@ onBeforeUnmount(() => {
   stopStatusCheck();
 });
 
-// Observa mudanças de índice (caso o usuário mude de canal no configStore)
 watch(i, updateChannel);
 </script>
-
-<style scoped>
-/* Estilos opcionais para personalizar os botões e layout */
-</style>
