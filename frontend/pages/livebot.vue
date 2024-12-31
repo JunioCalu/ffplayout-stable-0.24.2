@@ -43,7 +43,7 @@
             <p class="text-sm text-gray-600 dark:text-gray-400">
               Ative para detectar automaticamente novas lives
             </p>
-            <SwitchButton class="w-full" />
+            <SwitchButton/>
           </div>
         </section>
 
@@ -56,7 +56,7 @@
             <p class="text-sm text-gray-600 dark:text-gray-400">
               Insira o link da live para transmissão manual
             </p>
-            <LiveStreamControl class="w-full" />
+            <LiveStreamControl/>
           </div>
         </section>
       </main>
