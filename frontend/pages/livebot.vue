@@ -14,10 +14,10 @@
               class="h-[1.5em] w-[1.5em] rounded-full transition-all duration-300 flex-shrink-0"
               :class="{
                 'bg-emerald-500 shadow-lg shadow-emerald-500/50 animate-pulse':
-                  liveStreamStore.channel.isStreaming,
-                'bg-red-500 shadow-lg shadow-red-500/50': !liveStreamStore.channel.isStreaming
+                isStreaming,
+                'bg-red-500 shadow-lg shadow-red-500/50': !isStreaming
               }"
-              :aria-label="liveStreamStore.channel.isStreaming ? 'Canal online' : 'Canal offline'"
+              :aria-label="isStreaming ? 'Canal online' : 'Canal offline'"
               role="status"
             ></div>
             <div>
@@ -25,7 +25,7 @@
                 {{ liveStreamStore.channel.name || 'Nenhum canal selecionado' }}
               </h1>
               <p class="text-sm text-gray-600 dark:text-gray-400">
-                Status: {{ liveStreamStore.channel.isStreaming ? 'Transmitindo' : 'Offline' }}
+                Status: {{ isStreaming ? 'Transmitindo' : 'Offline' }}
               </p>
             </div>
           </div>
@@ -83,11 +83,9 @@
           </div>
           <div class="flex-1">
             <h2 class="text-lg font-semibold mb-2">Como usar</h2>
-            <!-- Texto isolado em <p> -->
             <p class="text-gray-600 dark:text-gray-400 text-sm leading-relaxed">
               Para iniciar uma live manualmente:
             </p>
-            <!-- Lista ordenada fora de <p> -->
             <ol class="list-decimal ml-5 mt-2 space-y-1">
               <li>Desative a detecção automática</li>
               <li>Cole o link da live do Youtube no campo</li>
@@ -101,12 +99,68 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, watch } from 'vue';
+import { onMounted, watch, ref } from 'vue'
+import { storeToRefs } from 'pinia'
+
+// Definindo a interface para o status da resposta
+interface PlayoutStatus {
+  ingest: boolean;
+}
 
 const colorMode = useColorMode();
 const configStore = useConfig();
+const authStore = useAuth();
 const liveStreamStore = useLiveStreamStore();
+//const playlistStore = usePlaylist();
 const { i } = storeToRefs(configStore);
+const errorCounter = ref(0)
+
+const localIngestRuns = ref(false);
+
+// Computed property para verificar se está transmitindo
+const isStreaming = computed(() => {
+    return liveStreamStore.channel.isStreaming || localIngestRuns.value;
+});
+
+const streamUrl = ref(`/data/event/${configStore.channels[i.value]?.id}?endpoint=playout&uuid=${authStore.uuid}`);
+
+
+const { status, data, error, close } = useEventSource(streamUrl, [], {
+  autoReconnect: {
+    retries: -1,
+    delay: 1000,
+  },
+});
+
+watch(data, () => {
+  if (data.value && data.value !== "connected") {
+    try {
+      const playoutStatus = JSON.parse(data.value) as PlayoutStatus;
+      localIngestRuns.value = Boolean(playoutStatus.ingest);
+    } catch (error) {
+      localIngestRuns.value = false;
+    }
+  }
+});
+
+watch([status, error], async () => {
+    if (status.value === 'OPEN') {
+        errorCounter.value = 0
+    } else {
+        errorCounter.value += 1
+
+        if (errorCounter.value > 11) {
+            await authStore.obtainUuid();
+            streamUrl.value = `/data/event/${configStore.channels[i.value]?.id}?endpoint=playout&uuid=${authStore.uuid}`;
+            errorCounter.value = 0;
+        }
+    }
+})
+
+// Adicione este watch para atualizar a URL quando i mudar
+watch(i, () => {
+    streamUrl.value = `/data/event/${configStore.channels[i.value]?.id}?endpoint=playout&uuid=${authStore.uuid}`;
+})
 
 function updateChannel() {
   if (configStore.channels[i.value]) {
@@ -116,8 +170,17 @@ function updateChannel() {
   }
 }
 
-onMounted(updateChannel);
-watch(i, updateChannel);
+onMounted(() => {
+  updateChannel();
+});
+
+watch(i, () => {
+  updateChannel();
+});
+
+onBeforeUnmount(() => {
+  close();
+});
 
 useHead({
   title: 'ffplayout | Livebot',
