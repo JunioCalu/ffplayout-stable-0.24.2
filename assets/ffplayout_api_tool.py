@@ -52,9 +52,9 @@ def send_message(api_url, token, endpoint, message_payload):
         print(f"Failed to send message. Status code: {response.status_code}, Response: {response.text}")
         sys.exit(1)
 
-def get_current_media(api_url, token):
+def get_current_media(api_url, token, channel_id):
     """Retrieve the current media information from the API."""
-    url = f"{api_url}/api/control/1/media/current"
+    url = f"{api_url}/api/control/{channel_id}/media/current"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {token}"
@@ -95,6 +95,7 @@ def main():
     parser.add_argument("--decode-token-jwt", action="store_true", help="Decode the JWT token and display its information.")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode for additional logging.")
     parser.add_argument("--api-url", type=str, default="http://127.0.0.1:8787", help="Base API URL. Defaults to http://127.0.0.1:8787.")
+    parser.add_argument("--channel-id", type=int, default=1, help="Channel ID for API calls. Defaults to 1.")
     args = parser.parse_args()
 
     # Configure logging
@@ -102,7 +103,8 @@ def main():
     logging.basicConfig(level=logging_level, format='%(asctime)s - %(levelname)s - %(message)s')
 
     api_url = args.api_url  # Use the provided API URL or default
-    endpoint = "/api/control/1/text/"
+    channel_id = args.channel_id  # Use the provided channel ID or default to 1
+    endpoint = f"/api/control/{channel_id}/text/"
 
     # Message payload default values
     default_message_payload = {
@@ -140,7 +142,7 @@ def main():
 
     if args.get_current_media:
         print("Retrieving current media...")
-        get_current_media(api_url, token)
+        get_current_media(api_url, token, channel_id)
 
     if args.decode_token_jwt:
         print("Decoding token...")
