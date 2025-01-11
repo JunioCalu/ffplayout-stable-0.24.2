@@ -17,21 +17,27 @@ def get_auth_token(api_url, username, password):
         "Content-Type": "application/json"
     }
 
-    logging.debug(f"Sending authentication request to {url} with payload: {payload}")
+    try:
+        logging.debug(f"Sending authentication request to {url} with payload: {payload}")
+        response = requests.post(url, json=payload, headers=headers)
 
-    response = requests.post(url, json=payload, headers=headers)
-
-    if response.status_code == 200:
-        data = response.json()
-        if "token" in data["user"]:
-            logging.debug(f"Authentication successful, response received: {data}")
-            logging.debug(f"Authentication successful, token received: {data['user']['token']}")
-            return data["user"]["token"]
+        if response.status_code == 200:
+            data = response.json()
+            if "token" in data["user"]:
+                logging.debug(f"Authentication successful, response received: {data}")
+                logging.debug(f"Authentication successful, token received: {data['user']['token']}")
+                return data["user"]["token"]
+            else:
+                print("Error: Token not found in the response.")
+                sys.exit(1)
         else:
-            print("Error: Token not found in the response.")
+            print(f"Failed to login. Status code: {response.status_code}, Response: {response.text}")
             sys.exit(1)
-    else:
-        print(f"Failed to login. Status code: {response.status_code}, Response: {response.text}")
+    except requests.RequestException as e:
+        print(f"Network error during authentication: {e}")
+        sys.exit(1)
+    except ValueError as e:
+        print(f"Error parsing authentication response: {e}")
         sys.exit(1)
 
 def send_message(api_url, token, endpoint, message_payload):
@@ -42,14 +48,20 @@ def send_message(api_url, token, endpoint, message_payload):
         "Authorization": f"Bearer {token}"
     }
 
-    logging.debug(f"Sending message to {url} with payload: {message_payload}")
+    try:
+        logging.debug(f"Sending message to {url} with payload: {message_payload}")
+        response = requests.post(url, json=message_payload, headers=headers)
 
-    response = requests.post(url, json=message_payload, headers=headers)
-
-    if response.status_code == 200:
-        print("Message sent successfully:", response.json())
-    else:
-        print(f"Failed to send message. Status code: {response.status_code}, Response: {response.text}")
+        if response.status_code == 200:
+            print("Message sent successfully:", response.json())
+        else:
+            print(f"Failed to send message. Status code: {response.status_code}, Response: {response.text}")
+            sys.exit(1)
+    except requests.RequestException as e:
+        print(f"Network error while sending message: {e}")
+        sys.exit(1)
+    except ValueError as e:
+        print(f"Error parsing message response: {e}")
         sys.exit(1)
 
 def get_current_media(api_url, token, channel_id):
@@ -60,14 +72,20 @@ def get_current_media(api_url, token, channel_id):
         "Authorization": f"Bearer {token}"
     }
 
-    logging.debug(f"Fetching current media information from {url}")
+    try:
+        logging.debug(f"Fetching current media information from {url}")
+        response = requests.get(url, headers=headers)
 
-    response = requests.get(url, headers=headers)
-
-    if response.status_code == 200:
-        print("Current media information:", response.json())
-    else:
-        print(f"Failed to retrieve current media. Status code: {response.status_code}, Response: {response.text}")
+        if response.status_code == 200:
+            print("Current media information:", response.json())
+        else:
+            print(f"Failed to retrieve current media. Status code: {response.status_code}, Response: {response.text}")
+            sys.exit(1)
+    except requests.RequestException as e:
+        print(f"Network error while retrieving current media: {e}")
+        sys.exit(1)
+    except ValueError as e:
+        print(f"Error parsing media response: {e}")
         sys.exit(1)
 
 def decode_token(token):
@@ -130,23 +148,27 @@ def main():
             print("Invalid JSON string provided for --text-parameters.")
             sys.exit(1)
 
-    # Obtain authentication token
-    print("Obtaining authentication token...")
-    token = get_auth_token(api_url, args.username, args.password)
-    print("Token obtained successfully.")
+    try:
+        # Obtain authentication token
+        print("Obtaining authentication token...")
+        token = get_auth_token(api_url, args.username, args.password)
+        print("Token obtained successfully.")
 
-    # Perform operations based on arguments
-    if args.send_text:
-        print("Sending message...")
-        send_message(api_url, token, endpoint, default_message_payload)
+        # Perform operations based on arguments
+        if args.send_text:
+            print("Sending message...")
+            send_message(api_url, token, endpoint, default_message_payload)
 
-    if args.get_current_media:
-        print("Retrieving current media...")
-        get_current_media(api_url, token, channel_id)
+        if args.get_current_media:
+            print("Retrieving current media...")
+            get_current_media(api_url, token, channel_id)
 
-    if args.decode_token_jwt:
-        print("Decoding token...")
-        decode_token(token)
+        if args.decode_token_jwt:
+            print("Decoding token...")
+            decode_token(token)
+    except Exception as e:
+        print(f"Unexpected error occurred: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
