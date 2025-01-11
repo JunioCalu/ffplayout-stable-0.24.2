@@ -116,11 +116,15 @@ def main():
     parser.add_argument("--channel-id", type=int, default=1, help="Channel ID for API calls. Defaults to 1.")
     args = parser.parse_args()
 
+    # Ensure the API URL has a scheme
+    if not args.api_url.startswith(("http://", "https://")):
+        args.api_url = f"http://{args.api_url}"
+
     # Configure logging
     logging_level = logging.DEBUG if args.debug else logging.INFO
     logging.basicConfig(level=logging_level, format='%(asctime)s - %(levelname)s - %(message)s')
 
-    api_url = args.api_url  # Use the provided API URL or default
+    api_url = args.api_url  # Use the validated API URL
     channel_id = args.channel_id  # Use the provided channel ID or default to 1
     endpoint = f"/api/control/{channel_id}/text/"
 
