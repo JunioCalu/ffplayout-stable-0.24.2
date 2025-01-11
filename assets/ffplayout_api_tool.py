@@ -94,13 +94,14 @@ def main():
     parser.add_argument("--text-parameters", metavar="JSON", type=str, help="JSON string of additional text parameters.")
     parser.add_argument("--decode-token-jwt", action="store_true", help="Decode the JWT token and display its information.")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode for additional logging.")
+    parser.add_argument("--api-url", type=str, default="http://127.0.0.1:8787", help="Base API URL. Defaults to http://127.0.0.1:8787.")
     args = parser.parse_args()
 
     # Configure logging
     logging_level = logging.DEBUG if args.debug else logging.INFO
     logging.basicConfig(level=logging_level, format='%(asctime)s - %(levelname)s - %(message)s')
 
-    api_url = "http://127.0.0.1:8787"  # Base API URL
+    api_url = args.api_url  # Use the provided API URL or default
     endpoint = "/api/control/1/text/"
 
     # Message payload default values
