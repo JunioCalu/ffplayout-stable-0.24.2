@@ -117,8 +117,9 @@ class TokenManager:
             self._request_new_token()
         return self.token
 
-def send_message(api_url, token, endpoint, message_payload):
+def send_message(api_url, token, channel_id, message_payload):
     """Sends a message to the API using the obtained token."""
+    endpoint = f"/api/control/{channel_id}/text/"
     url = f"{api_url}{endpoint}"
     headers = {
         "Content-Type": "application/json",
@@ -203,7 +204,6 @@ def main():
 
     api_url = args.api_url
     channel_id = args.channel_id
-    endpoint = f"/api/control/{channel_id}/text/"
 
     # Default parameters for the message
     default_message_payload = {
@@ -242,7 +242,7 @@ def main():
     # Executes operations based on provided arguments
     if args.send_text:
         print("Sending text message...")
-        send_message(api_url, token, endpoint, default_message_payload)
+        send_message(api_url, token, channel_id, default_message_payload)
 
     if args.get_current_media:
         print("Retrieving current media...")
