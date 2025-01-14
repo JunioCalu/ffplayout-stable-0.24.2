@@ -91,6 +91,9 @@ class TokenManager:
         try:
             logging.debug(f"Sending authentication request to {url}")
             response = requests.post(url, json=payload, headers=headers)
+            # Debugging response
+            logging.debug(f"Response status code: {response.status_code}")
+            logging.debug(f"Response content: {response.text}")
 
             if response.status_code == 200:
                 data = response.json()
@@ -155,7 +158,7 @@ def get_current_media(api_url, token, channel_id):
         response = requests.get(url, headers=headers)
 
         if response.status_code == 200:
-            print("Current media information:", response.json())
+            print("Current media information:", response.text)
         else:
             print(f"Failed to retrieve current media. Status code: {response.status_code}, Response: {response.text}")
             sys.exit(1)
@@ -169,6 +172,7 @@ def get_current_media(api_url, token, channel_id):
 def decode_token(token):
     """Decodes a JWT token and displays its expiration time."""
     try:
+        logging.debug("Encoded token: %s", token)
         decoded = jwt.decode(token, algorithms=["HS256"], options={"verify_signature": False})
         expiration = decoded.get("exp")
         print("Decoded token information:", decoded)
@@ -181,6 +185,33 @@ def decode_token(token):
     except jwt.PyJWTError as e:
         print(f"Error decoding token: {e}")
 
+def set_ingest_status(api_url, token, channel_id, ingest_status):
+    """Changes the ingest status of the current media."""
+    url = f"{api_url}/api/control/{channel_id}/media/ingest"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}"
+    }
+    payload = {
+        "ingest": ingest_status
+    }
+
+    try:
+        logging.debug(f"Changing ingest status to {ingest_status} at {url}")
+        response = requests.post(url, json=payload, headers=headers)
+
+        if response.status_code == 200:
+            print("Ingest status changed successfully:", response.json())
+        else:
+            print(f"Failed to change ingest status. Status code: {response.status_code}, Response: {response.text}")
+            sys.exit(1)
+    except requests.RequestException as e:
+        print(f"Network error while changing ingest status: {e}")
+        sys.exit(1)
+    except ValueError as e:
+        print(f"Error interpreting response: {e}")
+        sys.exit(1)
+
 def main():
     parser = argparse.ArgumentParser(description="API Automation Script")
     parser.add_argument("--username", type=str, required=True, help="Username for authentication.")
@@ -192,6 +223,8 @@ def main():
     parser.add_argument("--debug", action="store_true", help="Enables debug mode for detailed logging.")
     parser.add_argument("--api-url", type=str, default="http://127.0.0.1:8787", help="Base URL of the API. Default: http://127.0.0.1:8787.")
     parser.add_argument("--channel-id", type=int, default=1, help="Channel ID for API calls. Default: 1.")
+    parser.add_argument("--set-ingest-status", type=lambda s: s.lower(), choices=["true", "false"], help="Set the ingest status of the current media (true/false).")
+
     args = parser.parse_args()
 
     # Adjusts the API URL if it doesn't have the http/https scheme
@@ -251,6 +284,12 @@ def main():
     if args.decode_token_jwt:
         print("Decoding JWT token...")
         decode_token(token)
+
+    if args.set_ingest_status:
+        ingest_status = args.set_ingest_status == "true"
+        print(f"Changing ingest status to {ingest_status}...")
+        set_ingest_status(api_url, token, channel_id, ingest_status)
+
 
 if __name__ == "__main__":
     main()
