@@ -74,7 +74,7 @@ fi
 # Iniciar o MPV para ler do named pipe
 echo "Iniciando o MPV..."
 mpv "$FIFO_PATH" --keep-open --idle --profile=fast --hwdec=auto --cache=yes \
-    --demuxer-lavf-format=mpegts --demuxer-max-bytes=50M --demuxer-max-back-bytes=50M --cache-secs=30 &
+    --demuxer-max-bytes=50M --demuxer-max-back-bytes=50M --cache-secs=30 &
 MPV_PID=$!
 echo "MPV iniciado com PID: $MPV_PID"
 
