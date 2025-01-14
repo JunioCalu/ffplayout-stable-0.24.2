@@ -21,7 +21,7 @@ def start_ffmpeg_to_mpv(listen_url):
         ]
 
         # Iniciar o MPV
-        mpv_command = ["mpv", "-"]
+        mpv_command = ["mpv", "-", "--profile=fast", "--hwdec=auto", "--cache=yes", "--demuxer-max-bytes=50M", "--demuxer-max-back-bytes=50M", "--cache-secs=30"]
 
         # Executar os processos
         ffmpeg_proc = subprocess.Popen(ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
