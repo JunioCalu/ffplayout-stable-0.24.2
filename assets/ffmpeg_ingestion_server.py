@@ -2,6 +2,7 @@ import subprocess
 import signal
 import sys
 import time
+import argparse
 
 def start_ffmpeg_to_mpv(listen_url):
     """
@@ -73,8 +74,16 @@ def cleanup(ffmpeg_proc, mpv_proc):
     sys.exit(0)
 
 if __name__ == "__main__":
-    # Configuração padrão
-    DEFAULT_LISTEN_URL = "-f live_flv -listen 1 -i rtmp://127.0.0.1:1936/live/stream"
+    # Configuração de argumentos
+    parser = argparse.ArgumentParser(description="Servidor FFmpeg com redirecionamento para MPV.")
+    parser.add_argument("--ip", type=str, default="127.0.0.1", help="IP para o servidor FFmpeg escutar. Default: 127.0.0.1")
+    parser.add_argument("--rtmp-details", type=str, default=":1936/live/stream", help="Detalhes da porta e chave do stream RTMP. Default: :1936/live/stream")
+    args = parser.parse_args()
+
+    # Construir a URL de escuta
+    listen_ip = args.ip
+    rtmp_details = args.rtmp_details
+    listen_url = f"-f live_flv -listen 1 -i rtmp://{listen_ip}{rtmp_details}"
 
     # Iniciar o servidor
-    start_ffmpeg_to_mpv(DEFAULT_LISTEN_URL)
+    start_ffmpeg_to_mpv(listen_url)
