@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# comando original:
+#streamlink --hls-live-edge 6 --ringbuffer-size "64M" -4 --stream-sorting-excludes ">720p" --default-stream best --url "https://youtu.be/Evvdv13Vu_E" -o - | \
+#ffmpeg -re -i pipe:0 -c copy -f flv rtmp://127.0.0.1:1936/live/stream
+
 # Parâmetros do script
 URL="$1"
 RTMP_DESTINATION="rtmp://127.0.0.1:1936/live/stream"
