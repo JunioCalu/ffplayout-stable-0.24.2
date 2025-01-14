@@ -40,7 +40,7 @@ fi
 
 # Iniciar o servidor FFmpeg no modo de escuta e usar pipes para transferir o stream ao MPV
 echo "Iniciando o servidor FFmpeg no modo de escuta com $LISTEN_URL..."
-ffmpeg $LISTEN_URL -c copy -f mpegts pipe:1 | mpv - &
+ffmpeg $LISTEN_URL -c copy -f mpegts pipe:1 | mpv - --profile=fast --hwdec=auto --cache=yes --demuxer-max-bytes=50M --demuxer-max-back-bytes=50M --cache-secs=30 &
 
 # Obter o PID do processo
 FFMPEG_MPV_PID=$!
