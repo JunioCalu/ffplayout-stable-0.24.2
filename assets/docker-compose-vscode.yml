@@ -24,28 +24,6 @@ services:
     volumes:
       - /var/lib/docker_code_server:/var/lib/docker
       - ./docker/code-server/config:/config
-      #- /proc/driver/nvidia:/proc/driver/nvidia:ro
-      - /usr/bin/nvidia-smi:/usr/bin/nvidia-smi:ro
-      - /usr/bin/nvidia-debugdump:/usr/bin/nvidia-debugdump:ro
-      - /usr/bin/nvidia-persistenced:/usr/bin/nvidia-persistenced:ro
-      - /usr/bin/nvidia-cuda-mps-control:/usr/bin/nvidia-cuda-mps-control:ro
-      - /usr/bin/nvidia-cuda-mps-server:/usr/bin/nvidia-cuda-mps-server:ro
-      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.555.42.02:ro
-      - /usr/lib/x86_64-linux-gnu/libnvidia-cfg.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-cfg.so.555.42.02:ro
-      - /usr/lib/x86_64-linux-gnu/libcuda.so.555.42.02:/usr/lib/x86_64-linux-gnu/libcuda.so.555.42.02:ro
-      - /usr/lib/x86_64-linux-gnu/libcudadebugger.so.555.42.02:/usr/lib/x86_64-linux-gnu/libcudadebugger.so.555.42.02:ro
-      - /usr/lib/x86_64-linux-gnu/libnvidia-opencl.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-opencl.so.555.42.02:ro
-      - /usr/lib/x86_64-linux-gnu/libnvidia-gpucomp.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-gpucomp.so.555.42.02:ro
-      - /usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.555.42.02:ro
-      - /usr/lib/x86_64-linux-gnu/libnvidia-allocator.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-allocator.so.555.42.02:ro
-      - /usr/lib/x86_64-linux-gnu/libnvidia-pkcs11.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-pkcs11.so.555.42.02:ro
-      - /usr/lib/x86_64-linux-gnu/libnvidia-pkcs11-openssl3.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-pkcs11-openssl3.so.555.42.02:ro
-      - /usr/lib/x86_64-linux-gnu/libnvidia-nvvm.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-nvvm.so.555.42.02:ro
-      - /usr/lib/x86_64-linux-gnu/libvdpau_nvidia.so.555.42.02:/usr/lib/x86_64-linux-gnu/libvdpau_nvidia.so.555.42.02:ro
-      - /usr/lib/x86_64-linux-gnu/libnvidia-encode.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-encode.so.555.42.02:ro
-      - /usr/lib/x86_64-linux-gnu/libnvidia-opticalflow.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-opticalflow.so.555.42.02:ro
-      - /usr/lib/x86_64-linux-gnu/libnvcuvid.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvcuvid.so.555.42.02:ro
-      - /usr/lib/firmware/nvidia:/usr/lib/firmware/nvidia:ro
       #- /etc/timezone:/etc/timezone:ro
       #- /etc/localtime:/etc/localtime:ro    
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
