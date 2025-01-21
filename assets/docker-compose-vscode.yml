@@ -1,0 +1,102 @@
+services:
+  code-server-dev-nvidia:
+    image: juniocalu/code-server-dev-ffplayout:v1.0
+    container_name: code-server-dev-nvidia
+    restart: always
+    privileged: true
+    stdin_open: true
+    tty: true
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Maceio
+      - PASSWORD=Tu9ushul8ein
+      - HASHED_PASSWORD=
+      - SUDO_PASSWORD=linux1234
+      - SUDO_PASSWORD_HASH=
+      - PROXY_DOMAIN=
+      - DEFAULT_WORKSPACE=/config/workspace
+      - VIDEO_GID=44
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+    cap_add:
+      - SYS_ADMIN
+    volumes:
+      - /var/lib/docker_code_server:/var/lib/docker
+      - ./docker/code-server/config:/config
+      #- /proc/driver/nvidia:/proc/driver/nvidia:ro
+      - /usr/bin/nvidia-smi:/usr/bin/nvidia-smi:ro
+      - /usr/bin/nvidia-debugdump:/usr/bin/nvidia-debugdump:ro
+      - /usr/bin/nvidia-persistenced:/usr/bin/nvidia-persistenced:ro
+      - /usr/bin/nvidia-cuda-mps-control:/usr/bin/nvidia-cuda-mps-control:ro
+      - /usr/bin/nvidia-cuda-mps-server:/usr/bin/nvidia-cuda-mps-server:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.555.42.02:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-cfg.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-cfg.so.555.42.02:ro
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.555.42.02:/usr/lib/x86_64-linux-gnu/libcuda.so.555.42.02:ro
+      - /usr/lib/x86_64-linux-gnu/libcudadebugger.so.555.42.02:/usr/lib/x86_64-linux-gnu/libcudadebugger.so.555.42.02:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-opencl.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-opencl.so.555.42.02:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-gpucomp.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-gpucomp.so.555.42.02:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.555.42.02:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-allocator.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-allocator.so.555.42.02:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-pkcs11.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-pkcs11.so.555.42.02:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-pkcs11-openssl3.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-pkcs11-openssl3.so.555.42.02:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-nvvm.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-nvvm.so.555.42.02:ro
+      - /usr/lib/x86_64-linux-gnu/libvdpau_nvidia.so.555.42.02:/usr/lib/x86_64-linux-gnu/libvdpau_nvidia.so.555.42.02:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-encode.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-encode.so.555.42.02:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-opticalflow.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvidia-opticalflow.so.555.42.02:ro
+      - /usr/lib/x86_64-linux-gnu/libnvcuvid.so.555.42.02:/usr/lib/x86_64-linux-gnu/libnvcuvid.so.555.42.02:ro
+      - /usr/lib/firmware/nvidia:/usr/lib/firmware/nvidia:ro
+      #- /etc/timezone:/etc/timezone:ro
+      #- /etc/localtime:/etc/localtime:ro    
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      #- /opt/ssl:/opt/ssl:rw
+      #- /dev/shm:/var/www/html/live:rw
+      #- /usr/local/cuda:/usr/local/cuda:rw
+    devices:
+      - /dev/nvidia0
+      - /dev/nvidiactl
+      - /dev/nvidia-uvm
+      - /dev/nvidia-uvm-tools
+      - /dev/nvidia-caps
+      - /dev/nvidia-modeset
+      - /dev/dri/card0:/dev/dri/card0
+      - /dev/dri/renderD128:/dev/dri/renderD128
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ports:
+      - "1942:1942"
+      - "443:443"
+      - "80:80"
+      - "8787:8787"
+      - "8443:8443"
+      - "8082:8081"
+      - "8080:8080"
+      - "8181:8181"
+      - "1935:1935"
+      - "1936:1936"
+      - "6000:6000/udp"
+      - "9091:9091"
+      - "8585:8083"
+      - "1985:1985"
+      - "5656:5656"
+      - "5250:5250"
+      - "9443:9443"
+      - "8888:8888"
+      - "8383:8383"
+      - "8788:8788"
+      - "3002:3002"
+      - "3003:3003"
+      - "3004:3004"
+      - "3005:3005"
+      - "3006:3006"
+      - "3000:3000"
+      - "3001:3001"
+      - "8000:8000"
+      - "8001:8001"
+      - "5253:5253"
+      - "554:554"
