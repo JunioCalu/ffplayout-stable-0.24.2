@@ -1,3 +1,5 @@
+version: '3'
+
 services:
   code-server-dev-nvidia:
     image: juniocalu/code-server-dev-ffplayout:v1.0
