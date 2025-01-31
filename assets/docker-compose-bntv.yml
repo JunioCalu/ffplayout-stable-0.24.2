@@ -3,6 +3,8 @@ version: '3'
 services:
   swag:
     container_name: swag
+    stdin_open: true
+    tty: true
     image: lscr.io/linuxserver/swag:latest
     cap_add:
       - NET_ADMIN
@@ -33,6 +35,8 @@ services:
 
   authelia:
     container_name: authelia
+    stdin_open: true
+    tty: true
     image: authelia/authelia
     networks:
       - redeswag
@@ -46,6 +50,8 @@ services:
 
   restreamer:
     container_name: restreamer
+    stdin_open: true
+    tty: true
     image: datarhei/restreamer:cuda-latest
     networks:
       - redeswag
@@ -76,6 +82,8 @@ services:
 
   metube:
     container_name: metube
+    stdin_open: true
+    tty: true
     image: ghcr.io/alexta69/metube
     networks:
       - redeswag
@@ -98,6 +106,8 @@ services:
 
   spx-gc:
     container_name: spx-gc
+    stdin_open: true
+    tty: true
     build:
       context: .
       dockerfile: Dockerfile
@@ -109,6 +119,8 @@ services:
 
   srs:
     container_name: srs
+    stdin_open: true
+    tty: true
     image: ossrs/srs:4
     networks:
       - redeswag
