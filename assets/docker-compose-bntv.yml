@@ -59,6 +59,7 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       - TZ=America/Maceio
+      #- VIDEO_GID=44
     volumes:
       - ${HOME}/workspace/docker_compose/restreamer/core/config:/core/config
       - ${HOME}/workspace/docker_compose/restreamer/core/data:/core/data
