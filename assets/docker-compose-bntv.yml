@@ -1,0 +1,132 @@
+services:
+  swag:
+    container_name: swag
+    image: lscr.io/linuxserver/swag:latest
+    cap_add:
+      - NET_ADMIN
+    networks:
+      - redeswag
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Maceio
+      - URL=
+      - VALIDATION=
+      - SUBDOMAINS=programacao,videos,retransmissor,graficos,casparcg,auth,drive,
+      - CERTPROVIDER=
+      - DNSPLUGIN=
+      - PROPAGATION=
+      - EMAIL=junio.calu@gmail.com
+      - ONLY_SUBDOMAINS=false
+      - EXTRA_DOMAINS=
+      - STAGING=false
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ${HOME}/workspace/docker_compose/swag:/config
+    restart: unless-stopped
+
+  authelia:
+    container_name: authelia
+    image: authelia/authelia
+    networks:
+      - redeswag
+    expose:
+      - 9091
+    volumes:
+      - ${HOME}/workspace/docker_compose/authelia/config:/config
+    environment:
+      - TZ=America/Maceio
+    restart: unless-stopped
+
+  restreamer:
+    container_name: restreamer
+    image: datarhei/restreamer:cuda-latest
+    networks:
+      - redeswag
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - TZ=America/Maceio
+    volumes:
+      - ${HOME}/workspace/docker_compose/restreamer/core/config:/core/config
+      - ${HOME}/workspace/docker_compose/restreamer/core/data:/core/data
+      - ${HOME}/workspace/docker_compose/restreamer/core/config/etc/timezone:/etc/timezone:ro
+      - ${HOME}/workspace/docker_compose/restreamer/core/config/etc/localtime:/etc/localtime:ro
+      #- /sys/fs/cgroup:/sys/fs/cgroup:rw
+    devices:
+      - /dev/nvidia-caps
+      - /dev/nvidia-modeset
+      #- /dev/dri/card0:/dev/dri/card0
+      #- /dev/dri/renderD128:/dev/dri/renderD128
+    ports:
+      - "8080:8080"
+      - "8181:8181"
+      - "1935:1935"
+      - "1936:1936"
+      - "6000:6000/udp"
+    runtime: nvidia
+    privileged: true
+    restart: always
+
+  metube:
+    container_name: metube
+    image: ghcr.io/alexta69/metube
+    networks:
+      - redeswag
+    environment:
+      - TZ=America/Maceio
+      - URL_PREFIX=/drive
+      - UID=113
+      - GID=65534
+      - YTDL_OPTIONS={"external_downloader": "aria2c", "external_downloader_args":["-c","-j 16","-x 16","-s 16","-k 1M"], "merge_output_format":"mp4"}
+      - CREATE_CUSTOM_DIRS=true
+      - DARK_MODE=true
+      - DELETE_FILE_ON_TRASHCAN=true
+    expose:
+      - 8081
+    volumes:
+      - /var/lib/ffplayout/tv-media:/downloads
+      - ${HOME}/workspace/docker_compose/metube/etc/timezone:/etc/timezone
+      - ${HOME}/workspace/docker_compose/metube/etc/localtime:/etc/localtime
+    restart: unless-stopped
+
+  spx-gc:
+    container_name: spx-gc
+    build:
+      context: .
+      dockerfile: Dockerfile
+    networks:
+      - redeswag
+    expose:
+      - 5656
+    restart: unless-stopped
+
+  srs:
+    container_name: srs
+    image: ossrs/srs:4
+    networks:
+      - redeswag
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - TZ=America/Maceio
+      - CANDIDATE=0.0.0.0
+    expose:
+      - 1935
+      - 8000
+    ports:
+      - "8585:8080"
+      - "1985:1985"
+    volumes:
+      - ${HOME}/workspace/docker_compose/srs/etc/timezone:/etc/timezone:rw
+      - ${HOME}/workspace/docker_compose/srs/etc/localtime:/etc/localtime:rw
+    command: objs/srs -c conf/docker.conf
+    restart: unless-stopped
+
+networks:
+  redeswag:
+    external: true
