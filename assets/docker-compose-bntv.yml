@@ -63,14 +63,21 @@ services:
     volumes:
       - ${HOME}/workspace/docker_compose/restreamer/core/config:/core/config
       - ${HOME}/workspace/docker_compose/restreamer/core/data:/core/data
-      - ${HOME}/workspace/docker_compose/restreamer/core/config/etc/timezone:/etc/timezone:ro
-      - ${HOME}/workspace/docker_compose/restreamer/core/config/etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
       #- /sys/fs/cgroup:/sys/fs/cgroup:rw
     devices:
       - /dev/nvidia-caps
       - /dev/nvidia-modeset
       #- /dev/dri/card0:/dev/dri/card0
       #- /dev/dri/renderD128:/dev/dri/renderD128
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu,compute,video,graphics,utility]
     ports:
       - "8080:8080"
       - "8181:8181"
@@ -101,8 +108,8 @@ services:
       - 8081
     volumes:
       - /var/lib/ffplayout/tv-media:/downloads
-      - ${HOME}/workspace/docker_compose/metube/etc/timezone:/etc/timezone
-      - ${HOME}/workspace/docker_compose/metube/etc/localtime:/etc/localtime
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
     restart: unless-stopped
 
   spx-gc:
@@ -137,8 +144,8 @@ services:
       - "8585:8080"
       - "1985:1985"
     volumes:
-      - ${HOME}/workspace/docker_compose/srs/etc/timezone:/etc/timezone:rw
-      - ${HOME}/workspace/docker_compose/srs/etc/localtime:/etc/localtime:rw
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
     command: objs/srs -c conf/docker.conf
     restart: unless-stopped
 
