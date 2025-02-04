@@ -47,7 +47,7 @@ services:
           devices:
             - driver: nvidia
               count: all
-              capabilities: [gpu]
+              capabilities: [gpu,compute,video,graphics,utility]
     ports:
       - "1942:1942"
       - "443:443"
